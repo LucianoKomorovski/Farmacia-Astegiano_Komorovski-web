@@ -1,0 +1,32 @@
+{% extends 'core/base.html' %}
+{% block title %}Sobre Nosotros — Farmacias Astegiano y Komorovski{% endblock %}
+{% block content %}
+    <div class="text-center mb-5">
+        <h1 class="h2 fw-bold">Sobre Nosotros</h1>
+        <p class="text-muted mb-0">Una familia de farmacéuticos al servicio de Las Parejas.</p>
+    </div>
+    {% for item in items %}
+        <!-- Filas alternadas: imagen a un lado, texto al otro -->
+        <div class="row g-4 align-items-center {% if not forloop.first %}seccion{% endif %}">
+            <div class="col-md-5 {% if forloop.counter|divisibleby:2 %}order-md-2{% endif %}">
+                {% if item.imagen %}
+                    <img src="{{ item.imagen.url }}"
+                         class="img-fluid rounded-4 shadow-sm"
+                         alt="{{ item.titulo }}">
+                {% endif %}
+            </div>
+            <div class="col-md-7">
+                <h2 class="h4 fw-semibold">{{ item.titulo }}</h2>
+                <p class="text-muted mb-0">{{ item.descripcion }}</p>
+            </div>
+        </div>
+    {% empty %}
+        <p class="text-center text-muted">Próximamente contaremos nuestra historia.</p>
+    {% endfor %}
+    <!-- Volver al inicio -->
+    <div class="text-center seccion">
+        <a href="{% url 'inicio' %}" class="btn btn-outline-success">
+            <i class="bi bi-arrow-left me-2"></i> Volver al inicio
+        </a>
+    </div>
+{% endblock content %}

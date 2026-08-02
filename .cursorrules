@@ -1,0 +1,27 @@
+# Reglas para Proyecto Fullstack (Django Templates + API)
+
+## Estructura del Proyecto
+
+- El backend de Django se encuentra en la carpeta `/backend`.
+- El frontend/vistas se maneja de forma mixta con Django Templates y APIs.
+
+## Django y Vistas (Templates)
+
+- Usa vistas basadas en clases (CBVs) como ListView o DetailView para renderizados estándar de Templates.
+- Mantén el HTML limpio y estructurado en la carpeta de templates correspondiente.
+- Si una vista requiere lógica asíncrona, genera un endpoint de API separado en lugar de recargar el template.
+- Agrega comentarios donde sea necesario, sigo siendo un estudiante en desarrollo.
+
+## Estilo de Código Python
+
+- Usa Python moderno con type hints en funciones y métodos.
+- Sigue la guía de estilos PEP 8.
+- Evita consultas N+1: usa select_related y prefetch_related en el ORM.
+- Agrega comentarios donde sea necesario, sigo siendo un estudiante en desarrollo.
+
+## Respuestas de la IA
+
+- Sé conciso.
+- Muestra el código modificado completo. No uses comentarios de marcador de posición como "# ... resto del código ...".
+- Especifica siempre la ruta del archivo que estás modificando al inicio de tu respuesta (ej. `backend/models.py`).
+- Agrega comentarios donde sea necesario, sigo siendo un estudiante en desarrollo.
