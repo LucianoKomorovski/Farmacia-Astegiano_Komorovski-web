@@ -3,17 +3,18 @@ from datetime import time
 from django.utils import timezone
 
 from sucursales.models import Sucursal
+from turnos.models import Turno
 
 # Franja horaria en la que se muestra el letrero de turno.
 # Si el inicio es mayor que el fin, la franja cruza la medianoche
 # (ej: de 20:00 a 08:30 del día siguiente).
-HORA_INICIO_BANNER = time(10, 0)
-HORA_FIN_BANNER = time(16, 30)
+HORA_INICIO_BANNER = time(19, 50)
+HORA_FIN_BANNER = time(8, 30)
 
 
 def banner_turno(request):
-    """Hace disponible en todos los templates la sucursal de turno,
-    solo dentro de la franja horaria configurada."""
+    """Hace disponible en todos los templates el turno de hoy (según el
+    calendario cargado en el admin), solo dentro de la franja horaria."""
     ahora = timezone.localtime().time()
 
     if HORA_INICIO_BANNER <= HORA_FIN_BANNER:
@@ -22,9 +23,14 @@ def banner_turno(request):
         dentro_de_franja = ahora >= HORA_INICIO_BANNER or ahora <= HORA_FIN_BANNER
 
     if not dentro_de_franja:
-        return {'sucursal_de_turno': None}
+        return {'turno_hoy': None}
 
-    return {'sucursal_de_turno': Sucursal.objects.filter(esta_de_turno=True).first()}
+    turno = (
+        Turno.objects.select_related('farmacia')
+        .filter(fecha=timezone.localdate())
+        .first()
+    )
+    return {'turno_hoy': turno}
 
 
 # Cuenta de Instagram que se muestra en el footer.

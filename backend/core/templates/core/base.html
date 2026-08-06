@@ -29,9 +29,9 @@
         .seccion {
             margin-top: 5.5rem;
         }
-        /* Al navegar con los links del menú, que el título no quede tapado por la navbar fija */
-        #sucursales, #servicios {
-            scroll-margin-top: 85px;
+        /* Reserva de espacio bajo la navbar sticky (fallback si el navegador scrollea solo) */
+        #sucursales, #servicios, #turnos {
+            scroll-margin-top: 100px;
         }
         /* Altura uniforme para las fotos de fachada: todas las tarjetas quedan alineadas */
         .img-fachada {
@@ -77,13 +77,22 @@
     </head>
     <body class="bg-light text-high-contrast">
         <!-- LETRERO DE TURNO: cinta superior (solo en la franja horaria configurada) -->
-        {% if sucursal_de_turno %}
-            <a href="#sucursales" class="text-decoration-none">
+        {% if turno_hoy %}
+            {% if turno_hoy.farmacia.es_propia %}
+                <!-- Es una de nuestras farmacias: con link e invitación -->
+                <a href="{% url 'inicio' %}#sucursales" class="text-decoration-none">
+                    <div class="banner-turno text-center py-1 px-3">
+                        <i class="bi bi-moon-stars-fill me-2"></i>
+                        <span class="texto-brillo">{{ turno_hoy.farmacia.nombre }} está DE TURNO hoy — Tocá acá para ver dónde estamos |{{ turno_hoy.farmacia.direccion }}|</span>
+                    </div>
+                </a>
+            {% else %}
+                <!-- Es otra farmacia del pueblo: solo informativo, sin link -->
                 <div class="banner-turno text-center py-1 px-3">
                     <i class="bi bi-moon-stars-fill me-2"></i>
-                    <span class="texto-brillo">{{ sucursal_de_turno.nombre }} está DE TURNO hoy — Tocá acá para ver dónde estamos</span>
+                    <span class="texto-brillo">{{ turno_hoy.farmacia.nombre }} está DE TURNO hoy — {{ turno_hoy.farmacia.direccion }}</span>
                 </div>
-            </a>
+            {% endif %}
         {% endif %}
         <!-- BARRA DE NAVEGACIÓN MAESTRA -->
         <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm sticky-top">
@@ -107,6 +116,9 @@
                         </li>
                         <li class="nav-item">
                             <a class="nav-link fw-medium" href="{% url 'inicio' %}#servicios">Nuestros Servicios</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link fw-medium" href="{% url 'inicio' %}#turnos">Turnos Semana</a>
                         </li>
                         <li class="nav-item">
                             <a class="nav-link fw-medium" href="{% url 'sobre_nosotros' %}">Sobre Nosotros</a>
@@ -165,5 +177,95 @@
         </footer>
         <!-- Bootstrap JS (CDN) -->
         <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+        <!-- Menú hamburguesa + anclas: cerrar PRIMERO y scrollear DESPUÉS.
+             Si se scrollea con el menú abierto, la navbar es más alta y la sección
+             queda cortada; al hacer clic de nuevo el scroll se iba "corriendo". -->
+        <script>
+        // Función anónima que se ejecuta sola al cargar la página (IIFE).
+        // Sirve para no ensuciar el ámbito global con variables.
+        (function () {
+            var menu = document.getElementById('navbarNav');      // el panel que se abre/cierra
+            var toggler = document.querySelector('.navbar-toggler'); // el botón hamburguesa
+            var nav = document.querySelector('nav.sticky-top');      // la barra fija arriba
+            if (!menu || !toggler) return; // si no existen, no hacemos nada
+
+            // Devuelve cuántos píxeles ocupa la navbar sticky (cerrada) + un poco de aire.
+            // Lo usamos para que la sección no quede tapada debajo de la barra.
+            function alturaNavbar() {
+                return (nav ? nav.offsetHeight : 70) + 16;
+            }
+
+            // Baja la página hasta el elemento indicado por el hash (#turnos, #sucursales...).
+            // Resta la altura de la navbar para que el título se vea completo.
+            function scrollAHash(hash) {
+                var target = document.querySelector(hash);
+                if (!target) return;
+                var top = target.getBoundingClientRect().top + window.scrollY - alturaNavbar();
+                window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+            }
+
+            // Dice si el link apunta a la misma página en la que ya estamos.
+            // Ejemplo: estamos en "/" y el link es "/#turnos" → true (solo hay que scrollear).
+            // Si el link fuera a otra página, devolvemos false y dejamos que el navegador navegue.
+            function mismaPagina(pathDelLink) {
+                if (!pathDelLink || pathDelLink === '/') {
+                    return window.location.pathname === '/' || window.location.pathname === '';
+                }
+                return pathDelLink === window.location.pathname;
+            }
+
+            // Cierra el menú hamburguesa si está abierto, y recién cuando termina
+            // de cerrarse ejecuta "callback" (la función que le pasamos).
+            // Así el scroll se calcula con la navbar ya chica, no con el menú abierto.
+            function cerrarMenuLuego(callback) {
+                var abierto = window.getComputedStyle(toggler).display !== 'none'
+                    && menu.classList.contains('show');
+
+                // Si el menú no está abierto, ejecutamos el callback de una
+                if (!abierto) {
+                    callback();
+                    return;
+                }
+
+                // Esperamos el evento de Bootstrap que avisa "ya cerré el menú"
+                menu.addEventListener('hidden.bs.collapse', function alCerrar() {
+                    menu.removeEventListener('hidden.bs.collapse', alCerrar);
+                    callback();
+                });
+                // Pedimos a Bootstrap que cierre el menú (toggle: false = solo cerrar, no alternar)
+                bootstrap.Collapse.getOrCreateInstance(menu, { toggle: false }).hide();
+            }
+
+            // Por cada link del menú, escuchamos el clic
+            document.querySelectorAll('#navbarNav .nav-link').forEach(function (link) {
+                link.addEventListener('click', function (e) {
+                    var href = link.getAttribute('href') || '';
+                    var i = href.indexOf('#'); // posición del "#" en el href
+
+                    // Caso 1: link sin ancla (ej. "Sobre Nosotros") → solo cerrar el menú
+                    if (i === -1) {
+                        cerrarMenuLuego(function () {});
+                        return;
+                    }
+
+                    var path = href.slice(0, i); // parte antes del #: "/"
+                    var hash = href.slice(i);    // parte del #: "#turnos"
+
+                    // Caso 2: ancla de OTRA página, o la sección no existe → solo cerrar
+                    if (!mismaPagina(path) || !document.querySelector(hash)) {
+                        cerrarMenuLuego(function () {});
+                        return;
+                    }
+
+                    // Caso 3: misma página + ancla → nosotros manejamos el scroll
+                    e.preventDefault(); // cancela el salto automático del navegador
+                    cerrarMenuLuego(function () {
+                        history.replaceState(null, '', hash); // actualiza la URL a #turnos sin recargar
+                        scrollAHash(hash);                    // scrollea con el offset correcto
+                    });
+                });
+            });
+        })();
+        </script>
     </body>
 </html>

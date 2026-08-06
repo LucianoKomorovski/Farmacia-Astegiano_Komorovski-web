@@ -48,7 +48,7 @@
                     <div class="card-body d-flex flex-column">
                         <div class="d-flex justify-content-between align-items-center mb-2">
                             <h2 class="card-title h5 fw-semibold mb-0">{{ sucursal.nombre }}</h2>
-                            {% if sucursal.esta_de_turno %}
+                            {% if sucursal.id == id_sucursal_de_turno %}
                                 <span class="badge bg-success">¡De Turno Hoy!</span>
                             {% endif %}
                         </div>
@@ -79,6 +79,31 @@
                 </div>
             </div>
         {% endfor %}
+    </div>
+    <!-- WIDGET: FARMACIAS DE TURNO — PRÓXIMOS 7 DÍAS -->
+    <div id="turnos" class="seccion">
+        <div class="bg-white rounded-4 shadow-sm p-4">
+            <h2 class="h5 fw-bold mb-3 text-center">
+                <i class="bi bi-calendar-week text-success me-2"></i>Farmacias de turno — próximos 7 días
+            </h2>
+            <div class="row g-2 row-cols-2 row-cols-md-4 row-cols-lg-7 text-center">
+                {% for dia in proximos_turnos %}
+                    <div class="col">
+                        <div class="rounded-3 py-2 px-1 h-100 {% if dia.turno.farmacia.es_propia %}bg-success text-white{% elif dia.es_hoy %}border border-success{% else %}bg-light{% endif %}">
+                            <div class="small fw-semibold text-uppercase">
+                                {% if dia.es_hoy %}Hoy{% else %}{{ dia.fecha|date:"D j" }}{% endif %}
+                            </div>
+                            {% if dia.turno %}
+                                <div class="small fw-semibold">{{ dia.turno.farmacia.nombre }}</div>
+                                <div class="small {% if dia.turno.farmacia.es_propia %}text-white-50{% else %}text-muted{% endif %}">{{ dia.turno.farmacia.direccion }}</div>
+                            {% else %}
+                                <div class="small text-muted">A confirmar</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
     </div>
     <!-- SECCIÓN DE SERVICIOS -->
     <div id="servicios" class="seccion pt-4 border-top">
