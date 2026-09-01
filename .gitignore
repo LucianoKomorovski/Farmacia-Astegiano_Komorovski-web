@@ -3,8 +3,9 @@
 venv/
 env/
 
-# Variables de entorno y secretos
+# Secretos locales (NUNCA subir). La plantilla SÍ se sube: backend/.env.example
 .env
+!.env.example
 
 # Base de datos local (¡Nunca se sube!)
 db.sqlite3

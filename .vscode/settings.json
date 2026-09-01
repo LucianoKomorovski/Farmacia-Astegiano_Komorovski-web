@@ -1,6 +1,9 @@
 {
-  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+  "python.defaultInterpreterPath": "/home/lucianok/Desktop/Farmacia-Astegiano_Komorovski-web/venv/bin/python",
   "python.terminal.activateEnvironment": true,
+  "python.useEnvironmentsExtension": false,
+  "python-envs.defaultEnvManager": "ms-python.python:venv",
+  "python-envs.workspaceSearchPaths": ["./venv"],
   "python.analysis.extraPaths": ["${workspaceFolder}/backend"],
   "files.associations": {
     "**/templates/**/*.html": "django-html",
@@ -11,9 +14,16 @@
   },
   "djlint.enableLinting": false,
   "djlint.profile": "django",
-  "djlint.pythonPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+  "djlint.pythonPath": "/home/lucianok/Desktop/Farmacia-Astegiano_Komorovski-web/venv/bin/python",
+  "djlint.executablePath": "/home/lucianok/Desktop/Farmacia-Astegiano_Komorovski-web/venv/bin/djlint",
+  "[html]": {
+    "djlint.enableLinting": false,
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
   "[django-html]": {
+    "djlint.enableLinting": true,
     "editor.defaultFormatter": "monosans.djlint",
+    "editor.formatOnSave": true,
     "editor.quickSuggestions": {
       "other": true,
       "comments": false,
@@ -22,5 +32,7 @@
     "html.validate.enable": false,
     "css.validate": false,
     "javascript.validate.enable": false
-  }
+  },
+  "cursorpyright.analysis.extraPaths": ["${workspaceFolder}/backend"],
+  "djlint.showInstallError": true
 }

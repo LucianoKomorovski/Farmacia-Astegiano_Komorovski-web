@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 from pathlib import Path
 import os
+from decimal import Decimal
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -33,7 +34,37 @@ DEBUG = os.environ.get('DEBUG') == 'True'
 
 
 
-ALLOWED_HOSTS = []
+# En desarrollo permitimos localhost; en producción definí ALLOWED_HOSTS en el .env
+# separado por comas, ej: ALLOWED_HOSTS=midominio.com,www.midominio.com
+if DEBUG:
+    ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'testserver']
+    # Para ngrok/cloudflared en pruebas de webhook MP:
+    ALLOWED_HOSTS += [
+        host.strip()
+        for host in os.environ.get('EXTRA_ALLOWED_HOSTS', '').split(',')
+        if host.strip()
+    ]
+else:
+    ALLOWED_HOSTS = [
+        host.strip()
+        for host in os.environ.get('ALLOWED_HOSTS', '').split(',')
+        if host.strip()
+    ]
+
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get('CSRF_TRUSTED_ORIGINS', '').split(',')
+    if origin.strip()
+]
+
+if not DEBUG:
+    SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'True') == 'True'
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_HSTS_SECONDS = int(os.environ.get('SECURE_HSTS_SECONDS', '31536000'))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 
 
 # Application definition
@@ -50,6 +81,12 @@ INSTALLED_APPS = [
     'sucursales',
     'turnos',
     'aboutUs',
+    'catalogo',
+    'inventario',
+    'carrito',
+    'pedidos',
+    'pagos',
+    'cuentas',
 ]
 
 MIDDLEWARE = [
@@ -67,7 +104,10 @@ ROOT_URLCONF = 'FarmaciaAstegiano.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        # DIRS se busca ANTES que los templates de cada app: acá van los que
+        # pisan a terceros (ej. registration/login.html de django.contrib.auth,
+        # que si no lo pisamos usaría el del admin).
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -113,6 +153,13 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+# --- Cuentas de clientes ---
+# LOGIN_URL: adónde manda @login_required a los anónimos (con ?next=...).
+# Los otros dos son los destinos por defecto tras loguearse / desloguearse.
+LOGIN_URL = 'login'
+LOGIN_REDIRECT_URL = 'catalogo_lista'
+LOGOUT_REDIRECT_URL = 'inicio'
+
 
 # Internationalization
 # https://docs.djangoproject.com/en/6.0/topics/i18n/
@@ -130,9 +177,42 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 # URL que vera el navegador: 
 MEDIA_URL = '/media/'
 
 # Carpeta fisica donde se guardan las imagenes en el pc
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# --- Tienda: pagos e inventario ---
+MERCADOPAGO_ACCESS_TOKEN = os.environ.get('MERCADOPAGO_ACCESS_TOKEN', '')
+MERCADOPAGO_PUBLIC_KEY = os.environ.get('MERCADOPAGO_PUBLIC_KEY', '')
+MERCADOPAGO_WEBHOOK_SECRET = os.environ.get('MERCADOPAGO_WEBHOOK_SECRET', '')
+
+# URL pública del sitio (ngrok o dominio). Vacío = usar host del request (localhost).
+SITE_URL = os.environ.get('SITE_URL', '').rstrip('/')
+
+RESERVA_STOCK_TTL_MINUTOS = int(os.environ.get('RESERVA_STOCK_TTL_MINUTOS', '60'))
+
+TRANSFERENCIA_ALIAS = os.environ.get('TRANSFERENCIA_ALIAS', '')
+TRANSFERENCIA_CBU = os.environ.get('TRANSFERENCIA_CBU', '')
+
+# Costo de envío (Fase 4): monto fijo; gratis si subtotal >= ENVIO_GRATIS_DESDE
+ENVIO_MONTO_FIJO = Decimal(os.environ.get('ENVIO_MONTO_FIJO', '1500'))
+ENVIO_GRATIS_DESDE = Decimal(os.environ.get('ENVIO_GRATIS_DESDE', '0'))
+
+# WhatsApp de contacto tienda (sin + ni espacios, ej. 5493471543210)
+WHATSAPP_TIENDA = os.environ.get('WHATSAPP_TIENDA', '')
+
+# Email (SMTP) — notificaciones de estado de pedido
+EMAIL_BACKEND = os.environ.get(
+    'EMAIL_BACKEND',
+    'django.core.mail.backends.console.EmailBackend',
+)
+EMAIL_HOST = os.environ.get('EMAIL_HOST', '')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True') == 'True'
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'tienda@farmacia.local')

@@ -39,6 +39,11 @@
             object-fit: cover;
             object-position: center;
         }
+        .img-producto {
+            height: 200px;
+            object-fit: cover;
+            object-position: center;
+        }
         /* LETRERO DE TURNO: cinta fina superior, fondo ámbar + brillo que barre el texto */
         .banner-turno {
             background-color: #ffc107;
@@ -121,14 +126,74 @@
                             <a class="nav-link fw-medium" href="{% url 'inicio' %}#turnos">Turnos Semana</a>
                         </li>
                         <li class="nav-item">
+                            <a class="nav-link fw-medium" href="{% url 'catalogo_lista' %}">Tienda</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link fw-medium" href="{% url 'carrito_ver' %}">
+                                <i class="bi bi-cart3 me-1"></i>Carrito
+                            </a>
+                        </li>
+                        <li class="nav-item">
                             <a class="nav-link fw-medium" href="{% url 'sobre_nosotros' %}">Sobre Nosotros</a>
                         </li>
+                        {% if user.is_authenticated %}
+                            <!-- MENÚ DE CUENTA: dropdown con las acciones del usuario logueado -->
+                            <li class="nav-item dropdown">
+                                <a class="nav-link fw-medium dropdown-toggle"
+                                   href="#"
+                                   role="button"
+                                   data-bs-toggle="dropdown"
+                                   aria-expanded="false">
+                                    <i class="bi bi-person-circle me-1"></i>{{ user.get_username }}
+                                </a>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <li>
+                                        <a class="dropdown-item" href="{% url 'pedido_mis_pedidos' %}">
+                                            <i class="bi bi-bag-check me-2"></i>Mis pedidos
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a class="dropdown-item" href="{% url 'password_change' %}">
+                                            <i class="bi bi-key me-2"></i>Cambiar contraseña
+                                        </a>
+                                    </li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li>
+                                        <!-- Cerrar sesión va por POST: Django no acepta logout por GET -->
+                                        <form method="post" action="{% url 'logout' %}">
+                                            {% csrf_token %}
+                                            <button type="submit" class="dropdown-item">
+                                                <i class="bi bi-box-arrow-right me-2"></i>Cerrar sesión
+                                            </button>
+                                        </form>
+                                    </li>
+                                </ul>
+                            </li>
+                        {% else %}
+                            <li class="nav-item">
+                                <a class="nav-link fw-medium" href="{% url 'login' %}">
+                                    <i class="bi bi-person me-1"></i>Ingresar
+                                </a>
+                            </li>
+                        {% endif %}
                     </ul>
                 </div>
             </div>
         </nav>
         <!-- CONTENIDO DINÁMICO: Aquí se inyectará el index.html -->
         <main class="container py-5">
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="alert {% if message.tags == 'error' %}alert-danger{% elif message.tags == 'success' %}alert-success{% else %}alert-info{% endif %} alert-dismissible fade show"
+                         role="alert">
+                        {{ message }}
+                        <button type="button"
+                                class="btn-close"
+                                data-bs-dismiss="alert"
+                                aria-label="Cerrar"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
             {% block content %}
             {% endblock content %}
         </main>
@@ -238,6 +303,9 @@
 
             // Por cada link del menú, escuchamos el clic
             document.querySelectorAll('#navbarNav .nav-link').forEach(function (link) {
+                // El dropdown de la cuenta lo maneja Bootstrap: si lo tocáramos acá,
+                // cerraríamos el menú hamburguesa justo cuando el usuario lo abre.
+                if (link.hasAttribute('data-bs-toggle')) return;
                 link.addEventListener('click', function (e) {
                     var href = link.getAttribute('href') || '';
                     var i = href.indexOf('#'); // posición del "#" en el href

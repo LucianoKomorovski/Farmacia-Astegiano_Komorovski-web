@@ -1,0 +1,183 @@
+[
+{
+  "model": "sucursales.sucursal",
+  "pk": 1,
+  "fields": {
+    "nombre": "Farmacia Astegiano",
+    "descripcion": "Atención personalizada en el centro de Las Parejas. Medicamentos, dermocosmética y consejos de salud.",
+    "imagen_fachada": "",
+    "direccion": "San Martín 850, Las Parejas, Santa Fe",
+    "link_google_maps": "https://maps.google.com/?q=San+Martin+850+Las+Parejas",
+    "telefono_fijo": "03471421234",
+    "numero_whatsapp": "5493471543210",
+    "horarios_atencion": "Lun a Vie 8:00–20:00 · Sáb 8:00–13:00"
+  }
+},
+{
+  "model": "sucursales.sucursal",
+  "pk": 2,
+  "fields": {
+    "nombre": "Farmacia Komorovski",
+    "descripcion": "Tu farmacia de confianza en Las Parejas. Amplio stock, obras sociales y atención cercana.",
+    "imagen_fachada": "",
+    "direccion": "Belgrano 420, Las Parejas, Santa Fe",
+    "link_google_maps": "https://maps.google.com/?q=Belgrano+420+Las+Parejas",
+    "telefono_fijo": "03471425678",
+    "numero_whatsapp": "5493471654321",
+    "horarios_atencion": "Lun a Vie 8:30–20:30 · Sáb 8:30–13:30"
+  }
+},
+{
+  "model": "servicios.servicio",
+  "pk": 1,
+  "fields": {
+    "titulo": "Inyectables",
+    "descripcion": "Aplicación de inyecciones con profesional de la salud.",
+    "icono": "bi bi-droplet-half",
+    "sucursales_disponibles": [
+      1,
+      2
+    ]
+  }
+},
+{
+  "model": "servicios.servicio",
+  "pk": 2,
+  "fields": {
+    "titulo": "Toma de presión",
+    "descripcion": "Control de presión arterial sin turno previo.",
+    "icono": "bi bi-heart-pulse",
+    "sucursales_disponibles": [
+      1,
+      2
+    ]
+  }
+},
+{
+  "model": "servicios.servicio",
+  "pk": 3,
+  "fields": {
+    "titulo": "Dermocosmética",
+    "descripcion": "Asesoramiento en cuidado de la piel y productos de farmacia.",
+    "icono": "bi bi-flower1",
+    "sucursales_disponibles": [
+      1,
+      2
+    ]
+  }
+},
+{
+  "model": "servicios.servicio",
+  "pk": 4,
+  "fields": {
+    "titulo": "Obras sociales",
+    "descripcion": "Atención con las principales obras sociales y prepagas.",
+    "icono": "bi bi-card-checklist",
+    "sucursales_disponibles": [
+      1,
+      2
+    ]
+  }
+},
+{
+  "model": "turnos.farmacia",
+  "pk": 1,
+  "fields": {
+    "nombre": "Farmacia Astegiano",
+    "direccion": "San Martín 850",
+    "sucursal": 1
+  }
+},
+{
+  "model": "turnos.farmacia",
+  "pk": 2,
+  "fields": {
+    "nombre": "Farmacia Komorovski",
+    "direccion": "Belgrano 420",
+    "sucursal": 2
+  }
+},
+{
+  "model": "turnos.farmacia",
+  "pk": 3,
+  "fields": {
+    "nombre": "Farmacia del Pueblo",
+    "direccion": "Avenida 18 758",
+    "sucursal": null
+  }
+},
+{
+  "model": "turnos.farmacia",
+  "pk": 4,
+  "fields": {
+    "nombre": "Farmacia Central",
+    "direccion": "Mitre 210",
+    "sucursal": null
+  }
+},
+{
+  "model": "turnos.turno",
+  "pk": 1,
+  "fields": {
+    "fecha": "2026-08-06",
+    "farmacia": 1
+  }
+},
+{
+  "model": "turnos.turno",
+  "pk": 2,
+  "fields": {
+    "fecha": "2026-08-07",
+    "farmacia": 2
+  }
+},
+{
+  "model": "turnos.turno",
+  "pk": 3,
+  "fields": {
+    "fecha": "2026-08-08",
+    "farmacia": 3
+  }
+},
+{
+  "model": "turnos.turno",
+  "pk": 4,
+  "fields": {
+    "fecha": "2026-08-09",
+    "farmacia": 4
+  }
+},
+{
+  "model": "turnos.turno",
+  "pk": 5,
+  "fields": {
+    "fecha": "2026-08-10",
+    "farmacia": 1
+  }
+},
+{
+  "model": "turnos.turno",
+  "pk": 6,
+  "fields": {
+    "fecha": "2026-08-11",
+    "farmacia": 2
+  }
+},
+{
+  "model": "turnos.turno",
+  "pk": 7,
+  "fields": {
+    "fecha": "2026-08-12",
+    "farmacia": 3
+  }
+},
+{
+  "model": "aboutUs.sobrenosotros",
+  "pk": 1,
+  "fields": {
+    "titulo": "Una historia familiar en Las Parejas",
+    "descripcion": "Farmacia Astegiano y Farmacia Komorovski son dos sucursales unidas por el mismo compromiso: acompañar a las familias de Las Parejas con atención cercana, stock confiable y turnos rotativos para que siempre haya una farmacia disponible.",
+    "imagen": ""
+  }
+}
+]

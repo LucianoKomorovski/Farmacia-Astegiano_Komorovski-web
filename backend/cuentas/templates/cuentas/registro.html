@@ -1,0 +1,40 @@
+{% extends 'core/base.html' %}
+{% block title %}Crear cuenta — Farmacias Astegiano y Komorovski{% endblock %}
+{% block content %}
+    <div class="row justify-content-center">
+        <div class="col-12 col-sm-10 col-md-8 col-lg-6">
+            <div class="card border-0 shadow-sm rounded-4">
+                <div class="card-body p-4 p-md-5">
+                    <h1 class="h4 fw-bold text-center mb-1">Crear cuenta</h1>
+                    <p class="text-muted text-center small mb-4">
+                        Con tu cuenta podés seguir tus pedidos en un solo lugar.
+                    </p>
+                    {% if form.non_field_errors %}
+                        <div class="alert alert-danger small">
+                            {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+                        </div>
+                    {% endif %}
+                    <form method="post">
+                        {% csrf_token %}
+                        {% if request.GET.next %}
+                            <input type="hidden" name="next" value="{{ request.GET.next }}">
+                        {% endif %}
+                        {% include 'includes/campo_form.html' with campo=form.username %}
+                        {% include 'includes/campo_form.html' with campo=form.email %}
+                        {% include 'includes/campo_form.html' with campo=form.password1 %}
+                        {% include 'includes/campo_form.html' with campo=form.password2 %}
+                        <div class="d-grid mt-4">
+                            <button type="submit" class="btn btn-success">Crear cuenta</button>
+                        </div>
+                    </form>
+                    <hr class="my-4">
+                    <p class="text-center small mb-0">
+                        ¿Ya tenés cuenta?
+                        <a href="{% url 'login' %}{% if request.GET.next %}?next={{ request.GET.next|urlencode }}{% endif %}"
+                           class="link-success fw-semibold">Iniciá sesión</a>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock content %}

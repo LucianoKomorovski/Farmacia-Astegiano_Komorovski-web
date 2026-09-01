@@ -1,0 +1,4 @@
+sku,codigo_barras,codigo_praxys,stock_praxys,margen_seguridad,tope_web
+DERM-001,7790001001001,,30,2,25
+DERM-002,7790001001002,,20,2,
+HIG-001,7790001001003,,50,5,40

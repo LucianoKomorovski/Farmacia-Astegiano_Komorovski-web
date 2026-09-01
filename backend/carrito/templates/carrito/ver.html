@@ -1,0 +1,77 @@
+{% extends 'core/base.html' %}
+{% block title %}Carrito — Farmacias Astegiano y Komorovski{% endblock %}
+{% block content %}
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h2 fw-bold mb-0">Tu carrito</h1>
+        <a href="{% url 'catalogo_lista' %}" class="btn btn-outline-success btn-sm">Seguir comprando</a>
+    </div>
+    {% if carrito and carrito.modo %}
+        <p class="small text-muted">
+            Modo:
+            {% if carrito.modo == 'encargue' %}
+                <span class="badge text-bg-warning">A encargue</span>
+            {% else %}
+                <span class="badge text-bg-success">Venta inmediata</span>
+            {% endif %}
+            (no se pueden mezclar ambos tipos en el mismo carrito)
+        </p>
+    {% endif %}
+    {% if lineas %}
+        <div class="table-responsive bg-white rounded-4 shadow-sm">
+            <table class="table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Producto</th>
+                        <th class="text-center">Cantidad</th>
+                        <th class="text-end">Precio</th>
+                        <th class="text-end">Subtotal</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for linea in lineas %}
+                        <tr>
+                            <td>
+                                <a href="{% url 'catalogo_detalle' linea.producto.slug %}"
+                                   class="text-decoration-none text-dark fw-semibold">
+                                    {{ linea.producto.nombre }}
+                                </a>
+                            </td>
+                            <td class="text-center" style="min-width: 9rem;">
+                                <form method="post"
+                                      action="{% url 'carrito_actualizar' linea.id %}"
+                                      class="d-inline-flex gap-1 justify-content-center">
+                                    {% csrf_token %}
+                                    <input type="number"
+                                           name="cantidad"
+                                           value="{{ linea.cantidad }}"
+                                           min="1"
+                                           class="form-control form-control-sm"
+                                           style="width: 4.5rem;">
+                                    <button type="submit" class="btn btn-sm btn-outline-secondary">OK</button>
+                                </form>
+                            </td>
+                            <td class="text-end">${{ linea.precio_unitario }}</td>
+                            <td class="text-end fw-semibold">${{ linea.subtotal }}</td>
+                            <td class="text-end">
+                                <form method="post" action="{% url 'carrito_eliminar' linea.id %}">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">Quitar</button>
+                                </form>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="d-flex justify-content-end align-items-center gap-3 mt-4">
+            <p class="h5 mb-0">
+                Total: <span class="fw-bold text-success">${{ subtotal }}</span>
+            </p>
+            <a href="{% url 'pedido_checkout' %}" class="btn btn-success">Confirmar pedido</a>
+        </div>
+    {% else %}
+        <p class="text-muted">El carrito está vacío.</p>
+        <a href="{% url 'catalogo_lista' %}" class="btn btn-success">Ir a la tienda</a>
+    {% endif %}
+{% endblock content %}

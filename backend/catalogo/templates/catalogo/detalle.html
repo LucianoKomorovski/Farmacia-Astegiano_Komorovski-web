@@ -1,0 +1,66 @@
+{% extends 'core/base.html' %}
+{% block title %}{{ producto.nombre }} — Tienda{% endblock %}
+{% block content %}
+    <a href="{% url 'catalogo_lista' %}" class="btn btn-outline-success btn-sm mb-4">
+        <i class="bi bi-arrow-left me-1"></i> Volver a la tienda
+    </a>
+    <div class="row g-4 align-items-start">
+        <div class="col-md-5">
+            {% if producto.imagen %}
+                <img src="{{ producto.imagen.url }}"
+                     class="img-fluid rounded-4 shadow-sm"
+                     alt="{{ producto.nombre }}">
+            {% else %}
+                <div class="rounded-4 bg-secondary text-white d-flex align-items-center justify-content-center img-producto">
+                    <span>Sin imagen</span>
+                </div>
+            {% endif %}
+        </div>
+        <div class="col-md-7">
+            {% if producto.categoria %}
+                <p class="small text-muted mb-1">{{ producto.categoria.nombre }}</p>
+            {% endif %}
+            <h1 class="h3 fw-bold">{{ producto.nombre }}</h1>
+            <p class="h4 fw-semibold text-success">${{ producto.precio }}</p>
+            {% if producto.es_encargue %}
+                <p class="mb-3">
+                    <span class="badge text-bg-warning">A encargue</span>
+                    <span class="small text-muted">Staff confirma disponibilidad y después se cobra.</span>
+                </p>
+            {% elif producto.stock and producto.stock.cantidad_disponible > 0 %}
+                <p class="mb-3">
+                    <span class="badge text-bg-success">{{ producto.stock.cantidad_disponible }} disponibles</span>
+                </p>
+            {% else %}
+                <p class="mb-3">
+                    <span class="badge text-bg-secondary">Sin stock web</span>
+                </p>
+            {% endif %}
+            {% if producto.descripcion %}
+                <p class="text-muted">{{ producto.descripcion }}</p>
+            {% endif %}
+            {% if producto.es_encargue or producto.stock and producto.stock.cantidad_disponible > 0 %}
+                <form method="post"
+                      action="{% url 'carrito_agregar' producto.slug %}"
+                      class="d-flex flex-wrap gap-2 align-items-end mt-3">
+                    {% csrf_token %}
+                    <div>
+                        <label for="cantidad" class="form-label small mb-1">Cantidad</label>
+                        <input type="number"
+                               id="cantidad"
+                               name="cantidad"
+                               value="1"
+                               min="1"
+                               class="form-control"
+                               style="width: 6rem;">
+                    </div>
+                    <button type="submit" class="btn btn-success">
+                        <i class="bi bi-cart-plus me-1"></i> Agregar al carrito
+                    </button>
+                </form>
+            {% else %}
+                <p class="text-muted small mt-3 mb-0">No se puede agregar: sin stock web.</p>
+            {% endif %}
+        </div>
+    </div>
+{% endblock content %}

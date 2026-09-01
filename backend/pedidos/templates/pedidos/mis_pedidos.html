@@ -1,0 +1,28 @@
+{% extends 'core/base.html' %}
+{% block title %}Mis pedidos{% endblock %}
+{% block content %}
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h2 fw-bold mb-0">Mis pedidos</h1>
+        <a href="{% url 'catalogo_lista' %}" class="btn btn-outline-success btn-sm">Ir a la tienda</a>
+    </div>
+    {% if pedidos %}
+        <div class="list-group">
+            {% for pedido in pedidos %}
+                <a href="{% url 'pedido_confirmacion' pedido.numero %}"
+                   class="list-group-item list-group-item-action">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>{{ pedido.numero }}</strong>
+                            <span class="badge text-bg-secondary ms-2">{{ pedido.get_estado_display }}</span>
+                            <p class="small text-muted mb-0">{{ pedido.created_at|date:"d/m/Y H:i" }}</p>
+                        </div>
+                        <span class="fw-semibold text-success">${{ pedido.total }}</span>
+                    </div>
+                </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="text-muted">Todavía no tenés pedidos.</p>
+        <a href="{% url 'catalogo_lista' %}" class="btn btn-success">Comprar ahora</a>
+    {% endif %}
+{% endblock content %}

@@ -1,0 +1,22 @@
+{% comment %}
+Campo de formulario con estilo Bootstrap + errores.
+Uso: include 'includes/campo_form.html' with campo=form.username
+El type del input sale del widget del campo (text, email, password...).
+Ojo: los comentarios de numeral son solo de UNA línea; para bloques, comment.
+{% endcomment %}
+<div class="mb-3">
+    <label for="{{ campo.id_for_label }}" class="form-label">{{ campo.label }}</label>
+    <input type="{{ campo.field.widget.input_type }}"
+           name="{{ campo.html_name }}"
+           id="{{ campo.id_for_label }}"
+           {% if campo.field.widget.input_type != 'password' %}value="{{ campo.value|default_if_none:'' }}"{% endif %}
+           class="form-control{% if campo.errors %} is-invalid{% endif %}"
+           {% if campo.field.required %}required{% endif %}>
+    {% if campo.help_text %}
+        {# |safe: los textos de ayuda de Django traen HTML (listas de requisitos) #}
+        <div class="form-text">{{ campo.help_text|safe }}</div>
+    {% endif %}
+    {% for error in campo.errors %}
+        <div class="invalid-feedback">{{ error }}</div>
+    {% endfor %}
+</div>

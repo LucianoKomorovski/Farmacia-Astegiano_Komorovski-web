@@ -1,0 +1,153 @@
+{% extends 'core/base.html' %}
+{% block title %}Tienda — Farmacias Astegiano y Komorovski{% endblock %}
+{% block content %}
+    <div class="text-center mb-4">
+        <h1 class="h2 fw-bold">Tienda</h1>
+        <p class="text-muted mb-0">Productos sin receta. Retiro en sucursal o envío a domicilio.</p>
+    </div>
+
+    {# method="get" manda los campos como querystring: /tienda/?q=...&categoria=...&orden=... #}
+    <form method="get" action="{% url 'catalogo_lista' %}" class="row g-2 align-items-end mb-3">
+        <div class="col-12 col-md-5">
+            <label for="filtro-q" class="form-label small text-muted mb-1">Buscar</label>
+            <input type="search"
+                   id="filtro-q"
+                   name="q"
+                   value="{{ q_actual }}"
+                   class="form-control"
+                   placeholder="Nombre, SKU o descripción">
+        </div>
+        <div class="col-6 col-md-3">
+            <label for="filtro-categoria" class="form-label small text-muted mb-1">Categoría</label>
+            <select id="filtro-categoria" name="categoria" class="form-select">
+                <option value="">Todas</option>
+                {% for cat in categorias %}
+                    <option value="{{ cat.slug }}"
+                            {% if cat.slug == categoria_actual %}selected{% endif %}>
+                        {{ cat.nombre }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <label for="filtro-orden" class="form-label small text-muted mb-1">Ordenar por</label>
+            <select id="filtro-orden" name="orden" class="form-select">
+                <option value="">Nombre (A–Z)</option>
+                <option value="precio_asc" {% if orden_actual == 'precio_asc' %}selected{% endif %}>
+                    Precio: menor a mayor
+                </option>
+                <option value="precio_desc" {% if orden_actual == 'precio_desc' %}selected{% endif %}>
+                    Precio: mayor a menor
+                </option>
+            </select>
+        </div>
+        <div class="col-12 col-md-2 d-grid">
+            <button type="submit" class="btn btn-success">
+                <i class="bi bi-search me-1"></i> Filtrar
+            </button>
+        </div>
+    </form>
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <span class="text-muted small">
+            {{ page_obj.paginator.count }} producto{{ page_obj.paginator.count|pluralize }}
+            {% if hay_filtros %}encontrado{{ page_obj.paginator.count|pluralize }}{% endif %}
+        </span>
+        {% if hay_filtros %}
+            <a href="{% url 'catalogo_lista' %}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-x-circle me-1"></i> Limpiar filtros
+            </a>
+        {% endif %}
+    </div>
+
+    <div class="row g-4">
+        {% for producto in productos %}
+            <div class="col-sm-6 col-lg-4">
+                <div class="card h-100 shadow-sm border-0 rounded-4 overflow-hidden">
+                    {% if producto.imagen %}
+                        <img src="{{ producto.imagen.url }}"
+                             class="card-img-top img-producto"
+                             alt="{{ producto.nombre }}">
+                    {% else %}
+                        <div class="card-img-top img-producto bg-secondary text-white d-flex align-items-center justify-content-center">
+                            <span>Sin imagen</span>
+                        </div>
+                    {% endif %}
+                    <div class="card-body d-flex flex-column">
+                        <h2 class="h6 fw-semibold">{{ producto.nombre }}</h2>
+                        {% if producto.categoria %}
+                            <p class="text-muted small mb-1">{{ producto.categoria.nombre }}</p>
+                        {% endif %}
+                        {% if producto.es_encargue %}
+                            <span class="badge text-bg-warning mb-2 align-self-start">A encargue</span>
+                        {% elif producto.stock and producto.stock.cantidad_disponible > 0 %}
+                            <span class="badge text-bg-success mb-2 align-self-start">{{ producto.stock.cantidad_disponible }} en stock</span>
+                        {% else %}
+                            <span class="badge text-bg-secondary mb-2 align-self-start">Sin stock</span>
+                        {% endif %}
+                        <p class="fw-semibold mb-3">${{ producto.precio }}</p>
+                        <div class="d-grid gap-2 mt-auto">
+                            <a href="{% url 'catalogo_detalle' producto.slug %}"
+                               class="btn btn-outline-success btn-sm">Ver detalle</a>
+                            {% if producto.es_encargue or producto.stock and producto.stock.cantidad_disponible > 0 %}
+                                <form method="post" action="{% url 'carrito_agregar' producto.slug %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="cantidad" value="1">
+                                    <button type="submit" class="btn btn-success btn-sm w-100">
+                                        <i class="bi bi-cart-plus me-1"></i> Agregar
+                                    </button>
+                                </form>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% empty %}
+            <div class="col-12 text-center text-muted py-5">
+                {% if hay_filtros %}
+                    <p class="mb-2">No encontramos productos con esos filtros.</p>
+                    <a href="{% url 'catalogo_lista' %}" class="btn btn-outline-success btn-sm">Ver todo el catálogo</a>
+                {% else %}
+                    <p class="mb-0">Todavía no hay productos cargados. Agregalos desde el admin.</p>
+                {% endif %}
+            </div>
+        {% endfor %}
+    </div>
+
+    {# {% querystring %} regenera la URL actual cambiando solo "page": conserva q, categoria y orden #}
+    {% if is_paginated %}
+        <nav aria-label="Páginas del catálogo" class="mt-5">
+            <ul class="pagination justify-content-center flex-wrap">
+                {% if page_obj.has_previous %}
+                    <li class="page-item">
+                        <a class="page-link" href="{% querystring page=page_obj.previous_page_number %}">&laquo;</a>
+                    </li>
+                {% else %}
+                    <li class="page-item disabled"><span class="page-link">&laquo;</span></li>
+                {% endif %}
+
+                {% for num in rango_paginas %}
+                    {% if num == page_obj.paginator.ELLIPSIS %}
+                        <li class="page-item disabled"><span class="page-link">{{ num }}</span></li>
+                    {% elif num == page_obj.number %}
+                        <li class="page-item active" aria-current="page">
+                            <span class="page-link">{{ num }}</span>
+                        </li>
+                    {% else %}
+                        <li class="page-item">
+                            <a class="page-link" href="{% querystring page=num %}">{{ num }}</a>
+                        </li>
+                    {% endif %}
+                {% endfor %}
+
+                {% if page_obj.has_next %}
+                    <li class="page-item">
+                        <a class="page-link" href="{% querystring page=page_obj.next_page_number %}">&raquo;</a>
+                    </li>
+                {% else %}
+                    <li class="page-item disabled"><span class="page-link">&raquo;</span></li>
+                {% endif %}
+            </ul>
+        </nav>
+    {% endif %}
+{% endblock content %}

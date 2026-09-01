@@ -1,0 +1,117 @@
+{% extends 'core/base.html' %}
+{% block title %}Pedido {{ pedido.numero }} — Confirmación{% endblock %}
+{% block content %}
+    <div class="text-center mb-4">
+        {% if pedido.estado == 'confirmado' %}
+            <i class="bi bi-check-circle-fill text-success fs-1"></i>
+            <h1 class="h2 fw-bold mt-2">¡Pedido confirmado!</h1>
+        {% elif pedido.estado == 'cancelado' %}
+            <i class="bi bi-x-circle-fill text-danger fs-1"></i>
+            <h1 class="h2 fw-bold mt-2">Pedido cancelado</h1>
+        {% else %}
+            <i class="bi bi-hourglass-split text-warning fs-1"></i>
+            <h1 class="h2 fw-bold mt-2">Pedido registrado</h1>
+        {% endif %}
+        <p class="text-muted mb-0">Número: <strong>{{ pedido.numero }}</strong></p>
+    </div>
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="bg-white rounded-4 shadow-sm p-4 mb-4">
+                <p class="mb-2">
+                    Estado:
+                    <span class="badge text-bg-secondary">{{ pedido.get_estado_display }}</span>
+                </p>
+                {% if pedido.es_encargue and pedido.estado == 'pendiente_encargue' %}
+                    <p class="small text-muted">
+                        Te contactaremos cuando confirmemos que podemos conseguir los productos. El pago será después.
+                    </p>
+                {% elif pedido.estado == 'pendiente_pago_encargue' %}
+                    <p class="small text-muted mb-3">
+                        ¡Encargue aprobado! Ya podés abonar para confirmar el pedido.
+                    </p>
+                    {% if mp_configurado %}
+                        <a href="{% url 'pagos_iniciar' pedido.numero %}"
+                           class="btn btn-success">Pagar con Mercado Pago</a>
+                    {% else %}
+                        <p class="small text-warning">Pago online no configurado. Contactá a la farmacia.</p>
+                    {% endif %}
+                {% elif pedido.estado == 'pendiente_transferencia' %}
+                    <p class="small text-muted mb-2">
+                        Transferí <strong>${{ pedido.total }}</strong> y avisanos por WhatsApp.
+                        Staff verificará el pago antes de preparar el pedido.
+                    </p>
+                    {% if transferencia_alias or transferencia_cbu %}
+                        <div class="small bg-light rounded p-3 mb-2">
+                            {% if transferencia_alias %}<p class="mb-1">Alias: <strong>{{ transferencia_alias }}</strong></p>{% endif %}
+                            {% if transferencia_cbu %}<p class="mb-0">CBU: <strong>{{ transferencia_cbu }}</strong></p>{% endif %}
+                        </div>
+                    {% endif %}
+                    {% if pedido.reservado_hasta %}
+                        <p class="small text-danger">
+                            Reserva de stock hasta {{ pedido.reservado_hasta|date:"d/m/Y H:i" }} hs.
+                        </p>
+                    {% endif %}
+                {% elif pedido.estado == 'pendiente_pago' %}
+                    <p class="small text-muted mb-3">Completá el pago para confirmar tu pedido.</p>
+                    {% if mp_configurado %}
+                        <a href="{% url 'pagos_iniciar' pedido.numero %}"
+                           class="btn btn-success">Pagar con Mercado Pago</a>
+                        {% if mp_modo_local %}
+                            <p class="small text-info mt-2 mb-0">
+                                <strong>Prueba en local:</strong> después de pagar en MP, volvé a esta página.
+                                El pedido no se confirma solo sin webhook; en desarrollo usá
+                                <code>python manage.py simular_pago {{ pedido.numero }}</code>.
+                            </p>
+                        {% endif %}
+                    {% else %}
+                        <p class="small text-warning">Pago online no configurado. Contactá a la farmacia.</p>
+                    {% endif %}
+                    {% if pedido.reservado_hasta %}
+                        <p class="small text-danger mt-2">
+                            Reserva de stock hasta {{ pedido.reservado_hasta|date:"d/m/Y H:i" }} hs.
+                        </p>
+                    {% endif %}
+                {% elif pedido.estado == 'confirmado' %}
+                    <p class="small text-muted">Estamos preparando tu pedido. Te avisaremos cuando esté listo.</p>
+                {% endif %}
+                <hr>
+                <h2 class="h6 fw-semibold">Datos de contacto</h2>
+                <p class="mb-1">{{ pedido.nombre_cliente }}</p>
+                <p class="mb-1">{{ pedido.email }}</p>
+                <p class="mb-3">{{ pedido.telefono }}</p>
+                <h2 class="h6 fw-semibold">Entrega</h2>
+                <p class="mb-1">{{ pedido.get_modalidad_entrega_display }}</p>
+                {% if pedido.sucursal_retiro %}
+                    <p class="mb-1">{{ pedido.sucursal_retiro.nombre }} — {{ pedido.sucursal_retiro.direccion }}</p>
+                {% endif %}
+                {% if pedido.direccion_envio %}
+                    <p class="mb-1">{{ pedido.direccion_envio }}</p>
+                    <p class="mb-1">
+                        {{ pedido.fecha_entrega|date:"d/m/Y" }}
+                        {% if pedido.franja_envio %}— {{ pedido.franja_envio }}{% endif %}
+                    </p>
+                {% endif %}
+                <hr>
+                <h2 class="h6 fw-semibold">Productos</h2>
+                <ul class="list-unstyled mb-3">
+                    {% for linea in pedido.lineas.all %}
+                        <li class="d-flex justify-content-between small mb-1">
+                            <span>{{ linea.cantidad }} × {{ linea.nombre_snapshot }}</span>
+                            <span>${{ linea.subtotal }}</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+                <p class="fw-bold mb-0 text-end">Total: <span class="text-success">${{ pedido.total }}</span></p>
+            </div>
+            <div class="text-center d-flex flex-wrap gap-2 justify-content-center">
+                {% if whatsapp_url %}
+                    <a href="{{ whatsapp_url }}" target="_blank" rel="noopener"
+                       class="btn btn-whatsapp">
+                        <i class="bi bi-whatsapp"></i> Consultar por WhatsApp
+                    </a>
+                {% endif %}
+                <a href="{% url 'catalogo_lista' %}" class="btn btn-outline-success">Seguir comprando</a>
+            </div>
+        </div>
+    </div>
+{% endblock content %}
