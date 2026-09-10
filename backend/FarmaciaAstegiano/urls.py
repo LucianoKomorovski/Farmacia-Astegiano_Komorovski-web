@@ -18,13 +18,13 @@ from django.contrib import admin
 from django.urls import include, path
 from django.conf import settings
 from django.conf.urls.static import static
-from core.views import inicio
+from core.views import InicioView
 from aboutUs.views import sobre_nosotros
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     #DEJAMOS LAS COMILLAS VACIAS PARA QUE SEA LA PAGINA PRINCIPAL
-    path('', inicio, name='inicio'),
+    path('', InicioView.as_view(), name='inicio'),
     path('sobre-nosotros/', sobre_nosotros, name='sobre_nosotros'),
     # include suma las URLs de catalogo debajo de /tienda/
     path('tienda/', include('catalogo.urls')),

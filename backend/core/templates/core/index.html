@@ -1,126 +1,285 @@
 {% extends 'core/base.html' %}
-<!-- Vas a notar unas etiquetas raras entre llaves % % : ese es el motor de plantillas de Django, que te permite escribir Python dentro del HTML. -->
-{% block content %}
-    <!-- SECCIÓN HERO (Bienvenida) -->
-    <div class="text-center mb-5">
-        <h1 class="h2 fw-bold">Nuestras Farmacias en Las Parejas</h1>
-        <p class="text-muted mb-0">Tu salud y bienestar, nuestra prioridad familiar.</p>
-    </div>
-    <!-- FRANJA DE BENEFICIOS (estilo tienda moderna) -->
-    <div class="row g-3 text-center">
-        <div class="col-md-4">
-            <div class="bg-white rounded-3 shadow-sm py-3 px-2 h-100">
-                <i class="bi bi-whatsapp text-success fs-4 me-2"></i>
-                <span class="fw-semibold">Pedí tus medicamentos</span>
-                <div class="small text-muted">por WhatsApp, sin esperas</div>
-            </div>
-        </div>
-        <div class="col-md-4">
-            <div class="bg-white rounded-3 shadow-sm py-3 px-2 h-100">
-                <i class="bi bi-moon-stars text-success fs-4 me-2"></i>
-                <span class="fw-semibold">Turnos rotativos</span>
-                <div class="small text-muted">siempre hay una farmacia cerca</div>
-            </div>
-        </div>
-        <div class="col-md-4">
-            <div class="bg-white rounded-3 shadow-sm py-3 px-2 h-100">
-                <i class="bi bi-geo-alt text-success fs-4 me-2"></i>
-                <span class="fw-semibold">Dos sucursales</span>
-                <div class="small text-muted">en el centro de Las Parejas</div>
-            </div>
-        </div>
-    </div>
-    <!-- GRILLA DE SUCURSALES -->
-    <div id="sucursales" class="row g-4 seccion">
-        {% for sucursal in sucursales %}
-            <div class="col-md-6">
-                <div class="card h-100 shadow-sm border-0 rounded-4 overflow-hidden">
-                    <!-- Si subiste una imagen, se muestra aquí -->
-                    {% if sucursal.imagen_fachada %}
-                        <img src="{{ sucursal.imagen_fachada.url }}"
-                             class="card-img-top img-fachada"
-                             alt="Fachada de {{ sucursal.nombre }}">
-                    {% else %}
-                        <div class="card-img-top img-fachada bg-secondary text-white d-flex align-items-center justify-content-center">
-                            <span>Sin imagen disponible</span>
+{% load static %}
+{# Portada híbrida: primero la tienda (banners, categorías, ofertas, destacados),
+   después lo local (turnos, sucursales, servicios). Las etiquetas entre llaves
+   son del motor de templates de Django. #}
+
+{% block hero %}
+    <div class="hero-wrap py-3 py-lg-4">
+        <div class="container">
+            {% if banners %}
+                {# Carrusel de Bootstrap con hasta 3 banners cargados desde el admin #}
+                <div id="carruselPortada" class="carousel slide" data-bs-ride="carousel" data-bs-interval="6000">
+                    {% if banners|length > 1 %}
+                        <div class="carousel-indicators">
+                            {% for banner in banners %}
+                                <button type="button"
+                                        data-bs-target="#carruselPortada"
+                                        data-bs-slide-to="{{ forloop.counter0 }}"
+                                        {% if forloop.first %}class="active" aria-current="true"{% endif %}
+                                        aria-label="Banner {{ forloop.counter }}"></button>
+                            {% endfor %}
                         </div>
                     {% endif %}
-                    <div class="card-body d-flex flex-column">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <h2 class="card-title h5 fw-semibold mb-0">{{ sucursal.nombre }}</h2>
-                            {% if sucursal.id == id_sucursal_de_turno %}
-                                <span class="badge bg-success">¡De Turno Hoy!</span>
-                            {% endif %}
-                        </div>
-                        <p class="card-text text-muted small">{{ sucursal.descripcion }}</p>
-                        <ul class="list-unstyled small mt-auto mb-3">
-                            <li class="mb-1"><i class="bi bi-geo-alt-fill text-danger me-2"></i> {{ sucursal.direccion }}</li>
-                            <li class="mb-1"><i class="bi bi-clock-fill text-primary me-2"></i> {{ sucursal.horarios_atencion }}</li>
-                            {% if sucursal.telefono_fijo %}
-                                <li><i class="bi bi-telephone-fill text-secondary me-2"></i> {{ sucursal.telefono_fijo }}</li>
-                            {% endif %}
-                        </ul>
-                        <!-- BOTONES DE ACCIÓN -->
-                        <div class="d-grid gap-2">
-                            {% if sucursal.numero_whatsapp %}
-                                <a href="https://wa.me/{{ sucursal.numero_whatsapp }}"
-                                   target="_blank"
-                                   class="btn btn-whatsapp">
-                                    <i class="bi bi-whatsapp me-2"></i> Consultar por WhatsApp
+                    <div class="carousel-inner">
+                        {% for banner in banners %}
+                            <div class="carousel-item {% if forloop.first %}active{% endif %}">
+                                <div class="banner-slide {% if banner.imagen %}con-imagen{% else %}sin-imagen{% endif %}">
+                                    {% if banner.imagen %}
+                                        <img src="{{ banner.imagen.url }}" alt="">
+                                    {% endif %}
+                                    <div class="contenido">
+                                        <h2>{{ banner.titulo }}</h2>
+                                        {% if banner.subtitulo %}<p>{{ banner.subtitulo }}</p>{% endif %}
+                                        {% if banner.link %}
+                                            <a href="{{ banner.link }}" class="btn btn-light btn-lg rounded-pill px-4 mt-2">
+                                                {{ banner.texto_boton|default:"Ver más" }} <i class="bi bi-arrow-right ms-1"></i>
+                                            </a>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                    {% if banners|length > 1 %}
+                        <button class="carousel-control-prev" type="button" data-bs-target="#carruselPortada" data-bs-slide="prev">
+                            <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+                            <span class="visually-hidden">Anterior</span>
+                        </button>
+                        <button class="carousel-control-next" type="button" data-bs-target="#carruselPortada" data-bs-slide="next">
+                            <span class="carousel-control-next-icon" aria-hidden="true"></span>
+                            <span class="visually-hidden">Siguiente</span>
+                        </button>
+                    {% endif %}
+                </div>
+            {% else %}
+                {# Sin banners cargados: hero fijo con la propuesta de valor #}
+                <div class="hero-estatico">
+                    <div class="contenido">
+                        <span class="badge rounded-pill bg-white text-brand fw-bold mb-3">Las Parejas, Santa Fe</span>
+                        <h1>Tu farmacia de Las Parejas, ahora online</h1>
+                        <p>Comprá desde casa y retirá gratis en Astegiano o Komorovski, o recibilo en tu domicilio.</p>
+                        <div class="d-flex flex-wrap gap-2 mt-3">
+                            <a href="{% url 'catalogo_lista' %}" class="btn btn-light btn-lg rounded-pill px-4">
+                                <i class="bi bi-shop me-1"></i> Ver la tienda
+                            </a>
+                            {% if whatsapp_flotante %}
+                                <a href="https://wa.me/{{ whatsapp_flotante }}" target="_blank" rel="noopener" class="btn btn-whatsapp btn-lg rounded-pill px-4">
+                                    <i class="bi bi-whatsapp me-1"></i> Escribinos
                                 </a>
                             {% endif %}
-                            <a href="{{ sucursal.link_google_maps }}"
-                               target="_blank"
-                               class="btn btn-outline-secondary btn-sm">
-                                <i class="bi bi-map-fill me-2"></i> Ver en el Mapa
-                            </a>
                         </div>
                     </div>
                 </div>
+            {% endif %}
+
+            {# Franja de beneficios: por qué comprar acá #}
+            <div class="row g-2 g-md-3 mt-3">
+                <div class="col-6 col-lg-3">
+                    <div class="beneficio">
+                        <i class="bi bi-shop"></i>
+                        <div><strong>Retiro gratis</strong><span>en Astegiano o Komorovski</span></div>
+                    </div>
+                </div>
+                <div class="col-6 col-lg-3">
+                    <div class="beneficio">
+                        <i class="bi bi-truck"></i>
+                        <div><strong>Envío a domicilio</strong><span>en Las Parejas, franja a elección</span></div>
+                    </div>
+                </div>
+                <div class="col-6 col-lg-3">
+                    <div class="beneficio">
+                        <i class="bi bi-credit-card"></i>
+                        <div><strong>Pagá como quieras</strong><span>Mercado Pago o transferencia</span></div>
+                    </div>
+                </div>
+                <div class="col-6 col-lg-3">
+                    <div class="beneficio">
+                        <i class="bi bi-whatsapp"></i>
+                        <div><strong>Atención por WhatsApp</strong><span>consultá antes de comprar</span></div>
+                    </div>
+                </div>
             </div>
-        {% endfor %}
+        </div>
     </div>
-    <!-- WIDGET: FARMACIAS DE TURNO — PRÓXIMOS 7 DÍAS -->
-    <div id="turnos" class="seccion">
-        <div class="bg-white rounded-4 shadow-sm p-4">
-            <h2 class="h5 fw-bold mb-3 text-center">
-                <i class="bi bi-calendar-week text-success me-2"></i>Farmacias de turno — próximos 7 días
-            </h2>
-            <div class="row g-2 row-cols-2 row-cols-md-4 row-cols-lg-7 text-center">
-                {% for dia in proximos_turnos %}
-                    <div class="col">
-                        <div class="rounded-3 py-2 px-1 h-100 {% if dia.turno.farmacia.es_propia %}bg-success text-white{% elif dia.es_hoy %}border border-success{% else %}bg-light{% endif %}">
-                            <div class="small fw-semibold text-uppercase">
-                                {% if dia.es_hoy %}Hoy{% else %}{{ dia.fecha|date:"D j" }}{% endif %}
-                            </div>
-                            {% if dia.turno %}
-                                <div class="small fw-semibold">{{ dia.turno.farmacia.nombre }}</div>
-                                <div class="small {% if dia.turno.farmacia.es_propia %}text-white-50{% else %}text-muted{% endif %}">{{ dia.turno.farmacia.direccion }}</div>
-                            {% else %}
-                                <div class="small text-muted">A confirmar</div>
-                            {% endif %}
+{% endblock hero %}
+
+{% block content %}
+    {# ===== CATEGORÍAS ===== #}
+    {% if categorias %}
+        <section id="categorias" aria-labelledby="titulo-categorias">
+            <div class="seccion-titulo">
+                <h2 id="titulo-categorias">Comprá por categoría</h2>
+                <a href="{% url 'catalogo_lista' %}">Ver toda la tienda <i class="bi bi-arrow-right"></i></a>
+            </div>
+            <div class="chips-categorias">
+                {% for cat in categorias %}
+                    <a class="chip-categoria" href="{% url 'catalogo_lista' %}?categoria={{ cat.slug }}">
+                        <div class="circulo">
+                            <i class="{{ cat.icono|default:'bi bi-bag' }}"></i>
                         </div>
+                        {{ cat.nombre }}
+                    </a>
+                {% endfor %}
+            </div>
+        </section>
+    {% endif %}
+
+    {# ===== OFERTAS (solo si hay) ===== #}
+    {% if ofertas %}
+        <section id="ofertas" class="seccion" aria-labelledby="titulo-ofertas">
+            <div class="seccion-titulo">
+                <h2 id="titulo-ofertas"><i class="bi bi-tag-fill text-accent me-2"></i>Ofertas</h2>
+                <a href="{% url 'catalogo_lista' %}?oferta=1">Ver todas <i class="bi bi-arrow-right"></i></a>
+            </div>
+            <div class="row g-3 row-cols-2 row-cols-md-3 row-cols-lg-4">
+                {% for producto in ofertas %}
+                    <div class="col">
+                        {% include 'catalogo/includes/tarjeta_producto.html' with producto=producto %}
                     </div>
                 {% endfor %}
             </div>
+        </section>
+    {% endif %}
+
+    {# ===== DESTACADOS ===== #}
+    {% if destacados %}
+        <section id="destacados" class="seccion" aria-labelledby="titulo-destacados">
+            <div class="seccion-titulo">
+                <h2 id="titulo-destacados">Productos destacados</h2>
+                <a href="{% url 'catalogo_lista' %}">Ver toda la tienda <i class="bi bi-arrow-right"></i></a>
+            </div>
+            <div class="row g-3 row-cols-2 row-cols-md-3 row-cols-lg-4">
+                {% for producto in destacados %}
+                    <div class="col">
+                        {% include 'catalogo/includes/tarjeta_producto.html' with producto=producto %}
+                    </div>
+                {% endfor %}
+            </div>
+        </section>
+    {% endif %}
+
+    {# ===== TURNOS ===== #}
+    <section id="turnos" class="seccion" aria-labelledby="titulo-turnos">
+        <div class="seccion-titulo">
+            <h2 id="titulo-turnos"><i class="bi bi-moon-stars text-brand me-2"></i>Farmacias de turno</h2>
         </div>
-    </div>
-    <!-- SECCIÓN DE SERVICIOS -->
-    <div id="servicios" class="seccion pt-4 border-top">
-        <h2 class="h3 text-center mb-4 fw-bold">Nuestros Servicios</h2>
-        <div class="row g-3 justify-content-center">
+        <div class="row g-3">
+            <div class="col-lg-4">
+                {# Tarjeta grande: quién está de turno HOY #}
+                <div class="turno-hoy {% if turno_de_hoy and not turno_de_hoy.farmacia.es_propia %}ajena{% endif %}">
+                    <div class="etiqueta">Hoy, {{ proximos_turnos.0.fecha|date:"l j \d\e F" }}</div>
+                    {% if turno_de_hoy %}
+                        <h3>{{ turno_de_hoy.farmacia.nombre }}</h3>
+                        <div class="small"><i class="bi bi-geo-alt me-1"></i>{{ turno_de_hoy.farmacia.direccion }}</div>
+                        {% if turno_de_hoy.farmacia.es_propia %}
+                            <div class="small mt-2 opacity-75">Es una de nuestras farmacias: te esperamos.</div>
+                        {% else %}
+                            <div class="small mt-2 text-ink-soft">Farmacia del pueblo. Nosotros te atendemos en horario habitual.</div>
+                        {% endif %}
+                    {% else %}
+                        <h3>A confirmar</h3>
+                        <div class="small opacity-75">Todavía no cargamos el turno de hoy.</div>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="col-lg-8">
+                {# Tira compacta con los próximos 7 días #}
+                <div class="tira-turnos row g-2 row-cols-2 row-cols-sm-4 row-cols-lg-7 h-100">
+                    {% for dia in proximos_turnos %}
+                        <div class="col">
+                            <div class="dia text-center {% if dia.turno.farmacia.es_propia %}es-propia{% endif %} {% if dia.es_hoy %}es-hoy{% endif %}">
+                                <div class="fecha">{% if dia.es_hoy %}Hoy{% else %}{{ dia.fecha|date:"D j" }}{% endif %}</div>
+                                {% if dia.turno %}
+                                    <div class="fw-semibold mt-1">{{ dia.turno.farmacia.nombre }}</div>
+                                    <div class="text-ink-soft">{{ dia.turno.farmacia.direccion }}</div>
+                                {% else %}
+                                    <div class="text-ink-soft mt-1">A confirmar</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </section>
+
+    {# ===== SUCURSALES ===== #}
+    <section id="sucursales" class="seccion" aria-labelledby="titulo-sucursales">
+        <div class="seccion-titulo">
+            <h2 id="titulo-sucursales"><i class="bi bi-geo-alt text-brand me-2"></i>Nuestras sucursales en Las Parejas</h2>
+        </div>
+        <div class="row g-4">
+            {% for sucursal in sucursales %}
+                <div class="col-md-6">
+                    <div class="card h-100 border-0 rounded-4 overflow-hidden">
+                        {% if sucursal.imagen_fachada %}
+                            <img src="{{ sucursal.imagen_fachada.url }}"
+                                 class="img-fachada"
+                                 alt="Fachada de {{ sucursal.nombre }}"
+                                 loading="lazy">
+                        {% else %}
+                            <div class="fachada-placeholder"><i class="bi bi-shop"></i></div>
+                        {% endif %}
+                        <div class="card-body d-flex flex-column p-4">
+                            <div class="d-flex justify-content-between align-items-center mb-2 gap-2">
+                                <h3 class="h5 fw-bold mb-0">{{ sucursal.nombre }}</h3>
+                                {% if sucursal.id == id_sucursal_de_turno %}
+                                    <span class="badge rounded-pill text-bg-warning"><i class="bi bi-moon-stars-fill me-1"></i>De turno hoy</span>
+                                {% endif %}
+                            </div>
+                            {% if sucursal.descripcion %}
+                                <p class="text-ink-soft small">{{ sucursal.descripcion }}</p>
+                            {% endif %}
+                            <ul class="list-unstyled small mt-auto mb-3">
+                                <li class="mb-1"><i class="bi bi-geo-alt-fill text-brand me-2"></i>{{ sucursal.direccion }}</li>
+                                {% if sucursal.horarios_atencion %}
+                                    <li class="mb-1"><i class="bi bi-clock-fill text-brand me-2"></i>{{ sucursal.horarios_atencion }}</li>
+                                {% endif %}
+                                {% if sucursal.telefono_fijo %}
+                                    <li><i class="bi bi-telephone-fill text-brand me-2"></i>{{ sucursal.telefono_fijo }}</li>
+                                {% endif %}
+                            </ul>
+                            <div class="d-flex flex-wrap gap-2">
+                                {% if sucursal.numero_whatsapp %}
+                                    <a href="https://wa.me/{{ sucursal.numero_whatsapp }}"
+                                       target="_blank"
+                                       rel="noopener"
+                                       class="btn btn-whatsapp flex-grow-1">
+                                        <i class="bi bi-whatsapp me-1"></i> WhatsApp
+                                    </a>
+                                {% endif %}
+                                <a href="{{ sucursal.link_google_maps }}"
+                                   target="_blank"
+                                   rel="noopener"
+                                   class="btn btn-outline-primary flex-grow-1">
+                                    <i class="bi bi-map me-1"></i> Cómo llegar
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    </section>
+
+    {# ===== SERVICIOS ===== #}
+    <section id="servicios" class="seccion" aria-labelledby="titulo-servicios">
+        <div class="seccion-titulo">
+            <h2 id="titulo-servicios"><i class="bi bi-heart-pulse text-brand me-2"></i>Servicios en el mostrador</h2>
+        </div>
+        <div class="row g-3 row-cols-2 row-cols-md-4">
             {% for servicio in servicios %}
-                <div class="col-md-4 col-sm-6 text-center">
-                    <div class="p-3 bg-white rounded-3 shadow-sm h-100">
-                        <!-- Mostramos el ícono dinámico -->
-                        <i class="{{ servicio.icono }} fs-1 text-success mb-2 d-block"></i>
-                        <h3 class="h6 fw-semibold">{{ servicio.titulo }}</h3>
-                        <p class="text-muted small mb-0">{{ servicio.descripcion }}</p>
+                <div class="col">
+                    <div class="servicio">
+                        <i class="{{ servicio.icono }}"></i>
+                        <h3>{{ servicio.titulo }}</h3>
+                        <p class="text-ink-soft small mb-0">{{ servicio.descripcion }}</p>
                     </div>
                 </div>
             {% empty %}
-                <p class="text-center text-muted">Próximamente detallaremos nuestros servicios.</p>
+                <p class="text-center text-ink-soft">Próximamente detallaremos nuestros servicios.</p>
             {% endfor %}
         </div>
-    </div>
+    </section>
 {% endblock content %}

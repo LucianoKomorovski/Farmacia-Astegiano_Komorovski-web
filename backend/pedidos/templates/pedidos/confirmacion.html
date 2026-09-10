@@ -3,7 +3,7 @@
 {% block content %}
     <div class="text-center mb-4">
         {% if pedido.estado == 'confirmado' %}
-            <i class="bi bi-check-circle-fill text-success fs-1"></i>
+            <i class="bi bi-check-circle-fill text-brand fs-1"></i>
             <h1 class="h2 fw-bold mt-2">¡Pedido confirmado!</h1>
         {% elif pedido.estado == 'cancelado' %}
             <i class="bi bi-x-circle-fill text-danger fs-1"></i>
@@ -31,7 +31,7 @@
                     </p>
                     {% if mp_configurado %}
                         <a href="{% url 'pagos_iniciar' pedido.numero %}"
-                           class="btn btn-success">Pagar con Mercado Pago</a>
+                           class="btn btn-primary">Pagar con Mercado Pago</a>
                     {% else %}
                         <p class="small text-warning">Pago online no configurado. Contactá a la farmacia.</p>
                     {% endif %}
@@ -55,7 +55,7 @@
                     <p class="small text-muted mb-3">Completá el pago para confirmar tu pedido.</p>
                     {% if mp_configurado %}
                         <a href="{% url 'pagos_iniciar' pedido.numero %}"
-                           class="btn btn-success">Pagar con Mercado Pago</a>
+                           class="btn btn-primary">Pagar con Mercado Pago</a>
                         {% if mp_modo_local %}
                             <p class="small text-info mt-2 mb-0">
                                 <strong>Prueba en local:</strong> después de pagar en MP, volvé a esta página.
@@ -101,7 +101,7 @@
                         </li>
                     {% endfor %}
                 </ul>
-                <p class="fw-bold mb-0 text-end">Total: <span class="text-success">${{ pedido.total }}</span></p>
+                <p class="fw-bold mb-0 text-end">Total: <span class="text-brand">${{ pedido.total }}</span></p>
             </div>
             <div class="text-center d-flex flex-wrap gap-2 justify-content-center">
                 {% if whatsapp_url %}
@@ -110,7 +110,7 @@
                         <i class="bi bi-whatsapp"></i> Consultar por WhatsApp
                     </a>
                 {% endif %}
-                <a href="{% url 'catalogo_lista' %}" class="btn btn-outline-success">Seguir comprando</a>
+                <a href="{% url 'catalogo_lista' %}" class="btn btn-outline-primary">Seguir comprando</a>
             </div>
         </div>
     </div>

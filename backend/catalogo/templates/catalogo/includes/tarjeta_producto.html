@@ -1,0 +1,54 @@
+{% load static %}
+{# Tarjeta de producto reutilizable. Se incluye con "include ... with producto=p" #}
+<article class="tarjeta-producto">
+    <a class="imagen" href="{% url 'catalogo_detalle' producto.slug %}" aria-label="Ver {{ producto.nombre }}">
+        {% if producto.imagen %}
+            <img src="{{ producto.imagen.url }}" alt="{{ producto.nombre }}" loading="lazy">
+        {% else %}
+            <img src="{% static 'img/placeholder-producto.svg' %}" alt="" loading="lazy">
+        {% endif %}
+        {% if producto.en_oferta %}
+            <span class="badge-oferta">-{{ producto.porcentaje_descuento }}%</span>
+        {% endif %}
+    </a>
+    <div class="cuerpo">
+        {% if producto.categoria %}
+            <div class="categoria">{{ producto.categoria.nombre }}</div>
+        {% endif %}
+        <h3 class="nombre">
+            <a href="{% url 'catalogo_detalle' producto.slug %}">{{ producto.nombre }}</a>
+        </h3>
+
+        <div class="mb-2">
+            {% if producto.en_oferta %}
+                <div class="precio-anterior">${{ producto.precio_anterior|floatformat:"0g" }}</div>
+                <div class="precio-actual en-oferta">${{ producto.precio|floatformat:"0g" }}</div>
+            {% else %}
+                <div class="precio-actual">${{ producto.precio|floatformat:"0g" }}</div>
+            {% endif %}
+        </div>
+
+        {# Estado de stock: encargue / disponible / sin stock #}
+        {% if producto.es_encargue %}
+            <div class="estado-stock text-accent mb-2"><i class="bi bi-clock-history me-1"></i>A encargue</div>
+        {% elif producto.stock and producto.stock.cantidad_disponible > 0 %}
+            <div class="estado-stock text-brand mb-2"><i class="bi bi-check-circle me-1"></i>Disponible</div>
+        {% else %}
+            <div class="estado-stock text-ink-soft mb-2"><i class="bi bi-x-circle me-1"></i>Sin stock</div>
+        {% endif %}
+
+        <div class="mt-auto">
+            {% if producto.es_encargue or producto.stock and producto.stock.cantidad_disponible > 0 %}
+                <form method="post" action="{% url 'carrito_agregar' producto.slug %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="cantidad" value="1">
+                    <button type="submit" class="btn btn-primary btn-sm w-100">
+                        <i class="bi bi-cart-plus me-1"></i> Agregar
+                    </button>
+                </form>
+            {% else %}
+                <a href="{% url 'catalogo_detalle' producto.slug %}" class="btn btn-outline-primary btn-sm w-100">Ver detalle</a>
+            {% endif %}
+        </div>
+    </div>
+</article>

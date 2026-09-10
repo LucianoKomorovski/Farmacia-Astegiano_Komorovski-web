@@ -1,0 +1,732 @@
+/* =========================================================================
+   Farmacias Astegiano & Komorovski — hoja de estilos del sitio
+   -------------------------------------------------------------------------
+   Estrategia: Bootstrap 5 sigue haciendo el trabajo pesado (grilla, botones,
+   utilidades). Acá definimos la IDENTIDAD (colores, radios, sombras) con
+   variables CSS y "pisamos" las variables que Bootstrap usa internamente.
+   Así los templates viejos que usan .btn-success también quedan de marca.
+   ========================================================================= */
+
+/* ---------- 1. Tokens de marca ---------- */
+:root {
+    --brand: #0E8A6D;            /* verde farmacia */
+    --brand-dark: #0B6B55;       /* hover / títulos */
+    --brand-soft: #E3F3EE;       /* fondos suaves, chips */
+    --brand-rgb: 14, 138, 109;
+    --accent: #F0A04B;           /* acento cálido: ofertas, CTAs secundarios */
+    --accent-dark: #D9862F;
+    --accent-soft: #FDF1E3;
+    --whatsapp: #25D366;
+    --whatsapp-dark: #1EBE57;
+    --ink: #1F2933;              /* texto principal */
+    --ink-soft: #52606D;         /* texto secundario */
+    --surface: #FFFFFF;
+    --page-bg: #F5F8F7;
+    --line: #E1E8E5;
+
+    --radius-lg: 1.25rem;
+    --radius-md: 0.85rem;
+    --shadow-sm: 0 1px 2px rgba(31, 41, 51, 0.06), 0 2px 8px rgba(31, 41, 51, 0.05);
+    --shadow-md: 0 6px 24px rgba(31, 41, 51, 0.10);
+
+    /* Variables que Bootstrap lee para .text-primary, .bg-primary, links, focus... */
+    --bs-primary: var(--brand);
+    --bs-primary-rgb: var(--brand-rgb);
+    --bs-link-color: var(--brand);
+    --bs-link-color-rgb: var(--brand-rgb);
+    --bs-link-hover-color: var(--brand-dark);
+    --bs-link-hover-color-rgb: 11, 107, 85;
+    --bs-body-color: var(--ink);
+    --bs-body-bg: var(--page-bg);
+    --bs-border-radius: 0.6rem;
+    --bs-border-radius-lg: var(--radius-md);
+    --bs-border-radius-xl: var(--radius-lg);
+    --bs-success: var(--brand);
+    --bs-success-rgb: var(--brand-rgb);
+    --bs-warning: var(--accent);
+    --bs-warning-rgb: 240, 160, 75;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    color: var(--ink);
+    background-color: var(--page-bg);
+}
+
+h1, h2, h3, h4, .h1, .h2, .h3, .h4 {
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+}
+
+/* Utilidades de color propias */
+.text-brand { color: var(--brand) !important; }
+.bg-brand { background-color: var(--brand) !important; }
+.bg-brand-soft { background-color: var(--brand-soft) !important; }
+.text-accent { color: var(--accent-dark) !important; }
+.bg-accent-soft { background-color: var(--accent-soft) !important; }
+.text-ink-soft { color: var(--ink-soft) !important; }
+
+/* ---------- 2. Botones (primary y success apuntan al verde de marca) ---------- */
+.btn-primary,
+.btn-success {
+    --bs-btn-bg: var(--brand);
+    --bs-btn-border-color: var(--brand);
+    --bs-btn-hover-bg: var(--brand-dark);
+    --bs-btn-hover-border-color: var(--brand-dark);
+    --bs-btn-active-bg: var(--brand-dark);
+    --bs-btn-active-border-color: var(--brand-dark);
+    --bs-btn-disabled-bg: #9CC7BB;
+    --bs-btn-disabled-border-color: #9CC7BB;
+    --bs-btn-focus-shadow-rgb: var(--brand-rgb);
+    font-weight: 600;
+}
+
+.btn-outline-primary,
+.btn-outline-success {
+    --bs-btn-color: var(--brand);
+    --bs-btn-border-color: var(--brand);
+    --bs-btn-hover-bg: var(--brand);
+    --bs-btn-hover-border-color: var(--brand);
+    --bs-btn-active-bg: var(--brand-dark);
+    --bs-btn-active-border-color: var(--brand-dark);
+    --bs-btn-focus-shadow-rgb: var(--brand-rgb);
+    font-weight: 600;
+}
+
+.btn-accent {
+    --bs-btn-color: #fff;
+    --bs-btn-bg: var(--accent-dark);
+    --bs-btn-border-color: var(--accent-dark);
+    --bs-btn-hover-color: #fff;
+    --bs-btn-hover-bg: #C2761F;
+    --bs-btn-hover-border-color: #C2761F;
+    --bs-btn-active-color: #fff;
+    --bs-btn-active-bg: #C2761F;
+    --bs-btn-focus-shadow-rgb: 240, 160, 75;
+    font-weight: 600;
+}
+
+.btn-whatsapp {
+    --bs-btn-color: #fff;
+    --bs-btn-bg: var(--whatsapp);
+    --bs-btn-border-color: var(--whatsapp);
+    --bs-btn-hover-color: #fff;
+    --bs-btn-hover-bg: var(--whatsapp-dark);
+    --bs-btn-hover-border-color: var(--whatsapp-dark);
+    --bs-btn-active-color: #fff;
+    --bs-btn-active-bg: var(--whatsapp-dark);
+    font-weight: 700;
+}
+
+/* Badges: los de Bootstrap con text-bg-success/warning también quedan de marca */
+.text-bg-success { background-color: var(--brand) !important; color: #fff !important; }
+.text-bg-warning { background-color: var(--accent) !important; color: #1F2933 !important; }
+.badge-oferta {
+    background-color: var(--accent-dark);
+    color: #fff;
+    font-weight: 700;
+    border-radius: 999px;
+    padding: 0.35em 0.7em;
+}
+
+/* Tarjetas y superficies */
+.card {
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow-sm);
+}
+.surface {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+}
+
+/* Separación entre secciones de la portada */
+.seccion {
+    margin-top: 4rem;
+}
+.seccion-titulo {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+.seccion-titulo h2 {
+    font-size: 1.35rem;
+    margin: 0;
+}
+.seccion-titulo a {
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+/* Reserva de espacio bajo el header sticky al saltar a anclas */
+#sucursales, #servicios, #turnos, #ofertas, #destacados, #categorias {
+    scroll-margin-top: 120px;
+}
+
+/* ---------- 3. Cinta superior ---------- */
+.cinta-superior {
+    background: var(--brand-dark);
+    color: #fff;
+    font-size: 0.82rem;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+}
+.cinta-superior .sep { opacity: 0.45; margin: 0 0.6rem; }
+.cinta-superior a { color: inherit; text-decoration: none; }
+.cinta-superior a:hover { text-decoration: underline; }
+
+/* Variante "de turno": ámbar con brillo que barre el texto */
+.cinta-superior.es-turno {
+    background: var(--accent);
+    color: var(--ink);
+    font-weight: 600;
+}
+.cinta-superior .texto-brillo {
+    background: linear-gradient(90deg, #1F2933 40%, #FFFFFF 50%, #1F2933 60%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: barrido-brillo 3s linear infinite;
+}
+@keyframes barrido-brillo {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .cinta-superior .texto-brillo { animation: none; }
+}
+
+/* ---------- 4. Header ---------- */
+.header-sitio {
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    box-shadow: var(--shadow-sm);
+}
+.logo-sitio img {
+    height: 44px;
+    width: auto;
+}
+.buscador .form-control {
+    border-radius: 999px 0 0 999px;
+    border-color: var(--line);
+    padding-left: 1.1rem;
+}
+.buscador .btn {
+    border-radius: 0 999px 999px 0;
+    padding-inline: 1.1rem;
+}
+.buscador .form-control:focus {
+    border-color: var(--brand);
+    box-shadow: 0 0 0 0.2rem rgba(var(--brand-rgb), 0.15);
+}
+.accion-header {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    color: var(--ink);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.9rem;
+    padding: 0.4rem 0.6rem;
+    border-radius: var(--radius-md);
+    position: relative;
+}
+.accion-header:hover { background: var(--brand-soft); color: var(--brand-dark); }
+.accion-header .bi { font-size: 1.35rem; }
+.accion-header .badge-carrito {
+    position: absolute;
+    top: 0;
+    left: 1.6rem;
+    background: var(--accent-dark);
+    color: #fff;
+    font-size: 0.68rem;
+    font-weight: 700;
+    border-radius: 999px;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 0.35rem;
+}
+
+/* Fila 2: navegación de categorías */
+.nav-categorias {
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+}
+.nav-categorias .nav {
+    gap: 0.25rem;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    /* Centrada cuando entra; si hay muchas categorías, arranca desde la
+       izquierda y se puede scrollear (justify-content:center cortaría el inicio). */
+    justify-content: flex-start;
+    width: max-content;
+    max-width: 100%;
+    margin: 0 auto;
+}
+.nav-categorias .nav::-webkit-scrollbar { display: none; }
+.nav-categorias .nav-link {
+    color: var(--ink);
+    font-weight: 600;
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    padding: 0.65rem 0.7rem;
+    border-bottom: 3px solid transparent;
+    white-space: nowrap;
+}
+.nav-categorias .nav-link:hover,
+.nav-categorias .nav-link.active {
+    color: var(--brand-dark);
+    border-bottom-color: var(--brand);
+}
+.nav-categorias .nav-link.es-oferta { color: var(--accent-dark); }
+.nav-categorias .nav-link.es-oferta:hover { border-bottom-color: var(--accent); }
+
+/* Offcanvas (menú mobile) */
+.offcanvas .nav-link {
+    color: var(--ink);
+    font-weight: 600;
+    padding: 0.7rem 0;
+    border-bottom: 1px solid var(--line);
+}
+.offcanvas .nav-link:hover { color: var(--brand-dark); }
+
+/* ---------- 5. Hero / banners ---------- */
+.hero-wrap {
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+}
+.hero-estatico,
+.banner-slide {
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    min-height: 320px;
+    display: flex;
+    align-items: center;
+    color: #fff;
+    background: linear-gradient(120deg, var(--brand-dark) 0%, var(--brand) 55%, #3FAE8F 100%);
+    position: relative;
+}
+.hero-estatico::after,
+.banner-slide.sin-imagen::after {
+    /* Cruz de farmacia gigante y translúcida de fondo, decorativa */
+    content: "";
+    position: absolute;
+    right: -3rem;
+    bottom: -4rem;
+    width: 22rem;
+    height: 22rem;
+    background: rgba(255, 255, 255, 0.08);
+    -webkit-mask: url("../img/cruz.svg") no-repeat center / contain;
+    mask: url("../img/cruz.svg") no-repeat center / contain;
+    pointer-events: none;
+}
+.hero-estatico .contenido,
+.banner-slide .contenido {
+    position: relative;
+    z-index: 1;
+    padding: 2.5rem;
+    max-width: 38rem;
+}
+.hero-estatico h1,
+.banner-slide h2 {
+    color: #fff;
+    font-size: clamp(1.7rem, 3.2vw, 2.6rem);
+    line-height: 1.15;
+}
+.hero-estatico p,
+.banner-slide p { color: rgba(255, 255, 255, 0.88); font-size: 1.05rem; }
+.hero-estatico .btn-light,
+.banner-slide .btn-light { color: var(--brand-dark); font-weight: 700; }
+
+.banner-slide.con-imagen {
+    background: #000;
+}
+.banner-slide.con-imagen img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.85;
+}
+.banner-slide.con-imagen .contenido {
+    background: linear-gradient(90deg, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0));
+    max-width: none;
+    width: 100%;
+    min-height: 320px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+.carousel-indicators [data-bs-target] {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+/* Flechas del carrusel: más angostas y el texto del slide deja lugar para que no se pisen */
+.carousel-control-prev,
+.carousel-control-next {
+    width: 3.5rem;
+}
+.carousel .banner-slide .contenido {
+    padding-left: 4.5rem;
+    padding-right: 4.5rem;
+}
+@media (max-width: 767.98px) {
+    .carousel-control-prev,
+    .carousel-control-next { display: none; }
+    .carousel .banner-slide .contenido {
+        padding-left: 1.5rem;
+        padding-right: 1.5rem;
+    }
+}
+
+/* ---------- 6. Beneficios ---------- */
+.beneficio {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    padding: 0.9rem 1rem;
+    height: 100%;
+}
+.beneficio .bi {
+    font-size: 1.5rem;
+    color: var(--brand);
+    background: var(--brand-soft);
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.beneficio strong { display: block; font-size: 0.92rem; }
+.beneficio span { font-size: 0.8rem; color: var(--ink-soft); }
+
+/* ---------- 7. Chips de categorías ---------- */
+.chips-categorias {
+    display: flex;
+    gap: 1.25rem;
+    overflow-x: auto;
+    padding: 0.25rem 0.25rem 0.75rem;
+    scrollbar-width: thin;
+}
+.chip-categoria {
+    flex: 0 0 auto;
+    width: 7.25rem;
+    text-align: center;
+    text-decoration: none;
+    color: var(--ink);
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+.chip-categoria .circulo {
+    width: 5.25rem;
+    height: 5.25rem;
+    margin: 0 auto 0.5rem;
+    border-radius: 50%;
+    background: var(--brand-soft);
+    color: var(--brand);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+    border: 2px solid transparent;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+}
+.chip-categoria:hover .circulo {
+    transform: translateY(-3px);
+    border-color: var(--brand);
+}
+.chip-categoria:hover { color: var(--brand-dark); }
+
+/* ---------- 8. Tarjeta de producto ---------- */
+.tarjeta-producto {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+    transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+.tarjeta-producto:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+}
+.tarjeta-producto .imagen {
+    position: relative;
+    aspect-ratio: 1 / 1;
+    background: #fff;
+    display: block;
+}
+.tarjeta-producto .imagen img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    padding: 0.75rem;
+}
+.tarjeta-producto .badge-oferta {
+    position: absolute;
+    top: 0.6rem;
+    left: 0.6rem;
+}
+.tarjeta-producto .cuerpo {
+    padding: 0.85rem 0.95rem 1rem;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+}
+.tarjeta-producto .categoria {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ink-soft);
+    margin-bottom: 0.2rem;
+}
+.tarjeta-producto .nombre {
+    font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1.3;
+    margin-bottom: 0.5rem;
+    /* Máximo 2 líneas, el resto se corta con puntos suspensivos */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    min-height: 2.5rem;
+}
+.tarjeta-producto .nombre a {
+    color: inherit;
+    text-decoration: none;
+}
+.tarjeta-producto .nombre a:hover { color: var(--brand-dark); }
+.precio-anterior {
+    color: var(--ink-soft);
+    text-decoration: line-through;
+    font-size: 0.85rem;
+}
+.precio-actual {
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: var(--ink);
+}
+.precio-actual.en-oferta { color: var(--accent-dark); }
+.estado-stock {
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+/* Placeholder cuando no hay imagen */
+.imagen-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--brand-soft);
+    color: var(--brand);
+    font-size: 2.5rem;
+}
+
+/* ---------- 9. Turnos ---------- */
+.turno-hoy {
+    background: linear-gradient(120deg, var(--brand-dark), var(--brand));
+    color: #fff;
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    height: 100%;
+}
+.turno-hoy .etiqueta {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    opacity: 0.85;
+}
+.turno-hoy h3 { color: #fff; font-size: 1.4rem; margin: 0.25rem 0; }
+.turno-hoy.ajena {
+    background: var(--surface);
+    color: var(--ink);
+    border: 1px solid var(--line);
+}
+.turno-hoy.ajena h3 { color: var(--ink); }
+.tira-turnos .dia {
+    border-radius: var(--radius-md);
+    padding: 0.6rem 0.5rem;
+    height: 100%;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    font-size: 0.78rem;
+}
+.tira-turnos .dia.es-propia {
+    background: var(--brand-soft);
+    border-color: var(--brand);
+}
+.tira-turnos .dia.es-hoy { box-shadow: 0 0 0 2px var(--accent); }
+.tira-turnos .dia .fecha {
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 0.72rem;
+    color: var(--ink-soft);
+}
+
+/* ---------- 10. Sucursales y servicios ---------- */
+.img-fachada {
+    height: 220px;
+    object-fit: cover;
+    object-position: center;
+    width: 100%;
+}
+.fachada-placeholder {
+    height: 220px;
+    background: linear-gradient(135deg, var(--brand-soft), #fff);
+    color: var(--brand);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 3rem;
+}
+.servicio {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    padding: 1.25rem 1rem;
+    text-align: center;
+    height: 100%;
+}
+.servicio .bi {
+    font-size: 2rem;
+    color: var(--brand);
+    display: block;
+    margin-bottom: 0.5rem;
+}
+.servicio h3 { font-size: 0.98rem; font-weight: 700; }
+
+/* ---------- 11. Tienda: filtros laterales ---------- */
+.filtros .lista-categorias a {
+    display: block;
+    padding: 0.4rem 0;
+    color: var(--ink);
+    text-decoration: none;
+    font-size: 0.92rem;
+}
+.filtros .lista-categorias a:hover,
+.filtros .lista-categorias a.active {
+    color: var(--brand-dark);
+    font-weight: 700;
+}
+.breadcrumb {
+    font-size: 0.85rem;
+    --bs-breadcrumb-divider-color: var(--ink-soft);
+}
+.breadcrumb a { text-decoration: none; }
+
+/* Ficha de producto */
+.ficha-imagen {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    aspect-ratio: 1 / 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+.ficha-imagen img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    padding: 1.5rem;
+}
+.info-compra {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    padding: 1rem 1.1rem;
+    font-size: 0.9rem;
+}
+.info-compra .bi { color: var(--brand); font-size: 1.2rem; }
+
+/* ---------- 12. Footer ---------- */
+.footer-sitio {
+    background: #12332B;
+    color: rgba(255, 255, 255, 0.82);
+    margin-top: 4rem;
+}
+.footer-sitio h4 {
+    color: #fff;
+    font-size: 0.95rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 1rem;
+}
+.footer-sitio a.link-footer {
+    color: rgba(255, 255, 255, 0.72);
+    text-decoration: none;
+}
+.footer-sitio a.link-footer:hover {
+    color: #fff;
+    text-decoration: underline;
+}
+.footer-sitio .logo-footer img { height: 40px; }
+.footer-bottom {
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 0.82rem;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+/* ---------- 13. WhatsApp flotante ---------- */
+.whatsapp-flotante {
+    position: fixed;
+    right: 1.1rem;
+    bottom: 1.1rem;
+    z-index: 1040;
+    width: 3.4rem;
+    height: 3.4rem;
+    border-radius: 50%;
+    background: var(--whatsapp);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.8rem;
+    box-shadow: var(--shadow-md);
+    text-decoration: none;
+    transition: transform 0.15s ease, background 0.15s ease;
+}
+.whatsapp-flotante:hover {
+    background: var(--whatsapp-dark);
+    color: #fff;
+    transform: scale(1.06);
+}
+
+/* ---------- 14. Responsive ---------- */
+@media (max-width: 767.98px) {
+    .seccion { margin-top: 2.75rem; }
+    .hero-estatico, .banner-slide { min-height: 260px; }
+    .hero-estatico .contenido, .banner-slide .contenido { padding: 1.5rem; }
+    .logo-sitio img { height: 36px; }
+    .whatsapp-flotante { width: 3rem; height: 3rem; font-size: 1.55rem; }
+}

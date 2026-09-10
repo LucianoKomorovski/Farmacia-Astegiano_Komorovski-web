@@ -1,48 +1,80 @@
 {% extends 'core/base.html' %}
-{% block title %}{{ producto.nombre }} — Tienda{% endblock %}
+{% load static %}
+{% block title %}{{ producto.nombre }} — Farmacias Astegiano y Komorovski{% endblock %}
+{% block meta_description %}{{ producto.descripcion|default:producto.nombre|truncatechars:150 }}{% endblock %}
 {% block content %}
-    <a href="{% url 'catalogo_lista' %}" class="btn btn-outline-success btn-sm mb-4">
-        <i class="bi bi-arrow-left me-1"></i> Volver a la tienda
-    </a>
-    <div class="row g-4 align-items-start">
-        <div class="col-md-5">
-            {% if producto.imagen %}
-                <img src="{{ producto.imagen.url }}"
-                     class="img-fluid rounded-4 shadow-sm"
-                     alt="{{ producto.nombre }}">
-            {% else %}
-                <div class="rounded-4 bg-secondary text-white d-flex align-items-center justify-content-center img-producto">
-                    <span>Sin imagen</span>
-                </div>
+    {# Breadcrumb: Inicio > Tienda > Categoría > Producto #}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-3">
+            <li class="breadcrumb-item"><a href="{% url 'inicio' %}">Inicio</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'catalogo_lista' %}">Tienda</a></li>
+            {% if producto.categoria %}
+                <li class="breadcrumb-item">
+                    <a href="{% url 'catalogo_lista' %}?categoria={{ producto.categoria.slug }}">{{ producto.categoria.nombre }}</a>
+                </li>
             {% endif %}
+            <li class="breadcrumb-item active" aria-current="page">{{ producto.nombre|truncatechars:40 }}</li>
+        </ol>
+    </nav>
+
+    <div class="row g-4 g-lg-5 align-items-start">
+        {# ===== IMAGEN ===== #}
+        <div class="col-md-5">
+            <div class="ficha-imagen position-relative">
+                {% if producto.imagen %}
+                    <img src="{{ producto.imagen.url }}" alt="{{ producto.nombre }}">
+                {% else %}
+                    <img src="{% static 'img/placeholder-producto.svg' %}" alt="">
+                {% endif %}
+                {% if producto.en_oferta %}
+                    <span class="badge-oferta position-absolute top-0 start-0 m-3 fs-6">-{{ producto.porcentaje_descuento }}%</span>
+                {% endif %}
+            </div>
         </div>
+
+        {# ===== INFO Y COMPRA ===== #}
         <div class="col-md-7">
             {% if producto.categoria %}
-                <p class="small text-muted mb-1">{{ producto.categoria.nombre }}</p>
+                <div class="text-uppercase small text-ink-soft fw-semibold" style="letter-spacing: .05em;">{{ producto.categoria.nombre }}</div>
             {% endif %}
-            <h1 class="h3 fw-bold">{{ producto.nombre }}</h1>
-            <p class="h4 fw-semibold text-success">${{ producto.precio }}</p>
+            <h1 class="h3 mb-3">{{ producto.nombre }}</h1>
+
+            {# Precio (con oferta si corresponde) #}
+            <div class="mb-3">
+                {% if producto.en_oferta %}
+                    <div class="precio-anterior fs-6">${{ producto.precio_anterior|floatformat:"0g" }}</div>
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="precio-actual en-oferta fs-2">${{ producto.precio|floatformat:"0g" }}</span>
+                        <span class="badge rounded-pill bg-accent-soft text-accent">Ahorrás ${{ producto.ahorro|floatformat:"0g" }}</span>
+                    </div>
+                {% else %}
+                    <div class="precio-actual fs-2">${{ producto.precio|floatformat:"0g" }}</div>
+                {% endif %}
+            </div>
+
+            {# Estado de stock / encargue #}
             {% if producto.es_encargue %}
                 <p class="mb-3">
-                    <span class="badge text-bg-warning">A encargue</span>
-                    <span class="small text-muted">Staff confirma disponibilidad y después se cobra.</span>
+                    <span class="badge text-bg-warning"><i class="bi bi-clock-history me-1"></i>A encargue</span>
+                    <span class="small text-ink-soft ms-1">Confirmamos disponibilidad y recién ahí se cobra.</span>
                 </p>
             {% elif producto.stock and producto.stock.cantidad_disponible > 0 %}
                 <p class="mb-3">
-                    <span class="badge text-bg-success">{{ producto.stock.cantidad_disponible }} disponibles</span>
+                    <span class="badge text-bg-success"><i class="bi bi-check-circle me-1"></i>Disponible</span>
+                    <span class="small text-ink-soft ms-1">{{ producto.stock.cantidad_disponible }} unidad{{ producto.stock.cantidad_disponible|pluralize:"es" }} en stock web</span>
                 </p>
             {% else %}
                 <p class="mb-3">
-                    <span class="badge text-bg-secondary">Sin stock web</span>
+                    <span class="badge text-bg-secondary"><i class="bi bi-x-circle me-1"></i>Sin stock web</span>
+                    <span class="small text-ink-soft ms-1">Consultanos por WhatsApp, puede haber en el mostrador.</span>
                 </p>
             {% endif %}
-            {% if producto.descripcion %}
-                <p class="text-muted">{{ producto.descripcion }}</p>
-            {% endif %}
+
+            {# Formulario agregar al carrito #}
             {% if producto.es_encargue or producto.stock and producto.stock.cantidad_disponible > 0 %}
                 <form method="post"
                       action="{% url 'carrito_agregar' producto.slug %}"
-                      class="d-flex flex-wrap gap-2 align-items-end mt-3">
+                      class="d-flex flex-wrap gap-2 align-items-end mb-4">
                     {% csrf_token %}
                     <div>
                         <label for="cantidad" class="form-label small mb-1">Cantidad</label>
@@ -54,13 +86,64 @@
                                class="form-control"
                                style="width: 6rem;">
                     </div>
-                    <button type="submit" class="btn btn-success">
+                    <button type="submit" class="btn btn-primary btn-lg px-4">
                         <i class="bi bi-cart-plus me-1"></i> Agregar al carrito
                     </button>
                 </form>
-            {% else %}
-                <p class="text-muted small mt-3 mb-0">No se puede agregar: sin stock web.</p>
+            {% elif whatsapp_flotante %}
+                <a href="https://wa.me/{{ whatsapp_flotante }}?text={{ producto.nombre|urlencode }}"
+                   target="_blank"
+                   rel="noopener"
+                   class="btn btn-whatsapp btn-lg px-4 mb-4">
+                    <i class="bi bi-whatsapp me-1"></i> Consultar por WhatsApp
+                </a>
+            {% endif %}
+
+            {# Cómo lo recibís / cómo pagás #}
+            <div class="row g-2 mb-4">
+                <div class="col-sm-6">
+                    <div class="info-compra h-100">
+                        <div class="fw-semibold mb-2"><i class="bi bi-box-seam me-2"></i>Cómo lo recibís</div>
+                        <ul class="list-unstyled mb-0 text-ink-soft">
+                            <li class="mb-1"><i class="bi bi-shop me-2"></i>Retiro gratis en Astegiano o Komorovski</li>
+                            <li><i class="bi bi-truck me-2"></i>Envío a domicilio en Las Parejas</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="col-sm-6">
+                    <div class="info-compra h-100">
+                        <div class="fw-semibold mb-2"><i class="bi bi-wallet2 me-2"></i>Cómo pagás</div>
+                        <ul class="list-unstyled mb-0 text-ink-soft">
+                            <li class="mb-1"><i class="bi bi-credit-card me-2"></i>Mercado Pago (tarjetas y saldo)</li>
+                            <li><i class="bi bi-bank me-2"></i>Transferencia bancaria</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            {% if producto.descripcion %}
+                <h2 class="h6 fw-bold">Descripción</h2>
+                <p class="text-ink-soft">{{ producto.descripcion|linebreaksbr }}</p>
             {% endif %}
         </div>
     </div>
+
+    {# ===== RELACIONADOS ===== #}
+    {% if relacionados %}
+        <section class="seccion" aria-labelledby="titulo-relacionados">
+            <div class="seccion-titulo">
+                <h2 id="titulo-relacionados">También te puede interesar</h2>
+                {% if producto.categoria %}
+                    <a href="{% url 'catalogo_lista' %}?categoria={{ producto.categoria.slug }}">Ver más de {{ producto.categoria.nombre }} <i class="bi bi-arrow-right"></i></a>
+                {% endif %}
+            </div>
+            <div class="row g-3 row-cols-2 row-cols-md-4">
+                {% for rel in relacionados %}
+                    <div class="col">
+                        {% include 'catalogo/includes/tarjeta_producto.html' with producto=rel %}
+                    </div>
+                {% endfor %}
+            </div>
+        </section>
+    {% endif %}
 {% endblock content %}

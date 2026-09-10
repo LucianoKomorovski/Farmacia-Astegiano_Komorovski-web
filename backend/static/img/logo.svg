@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 352 64" width="352" height="64" role="img" aria-label="Farmacias Astegiano y Komorovski, Las Parejas">
+  <!-- Isotipo: cruz redondeada sobre fondo verde -->
+  <rect width="64" height="64" rx="14" fill="#0E8A6D"/>
+  <path d="M26 12h12a3 3 0 0 1 3 3v11h11a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3H41v11a3 3 0 0 1-3 3H26a3 3 0 0 1-3-3V38H12a3 3 0 0 1-3-3v-6a3 3 0 0 1 3-3h11V15a3 3 0 0 1 3-3z" fill="#fff"/>
+  <!-- Logotipo. textLength fija el ancho del texto sin importar la fuente
+       disponible (dentro de un <img> no se cargan webfonts). Solo ASCII. -->
+  <text x="78" y="31" textLength="270" lengthAdjust="spacingAndGlyphs" font-family="Inter, system-ui, -apple-system, 'Segoe UI', Arial, sans-serif" font-size="23" font-weight="800" fill="#1F2933">Astegiano <tspan fill="#0E8A6D">&amp;</tspan> Komorovski</text>
+  <text x="79" y="52" textLength="200" lengthAdjust="spacingAndGlyphs" font-family="Inter, system-ui, -apple-system, 'Segoe UI', Arial, sans-serif" font-size="12" font-weight="600" fill="#52606D">FARMACIAS &#183; LAS PAREJAS</text>
+</svg>

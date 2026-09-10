@@ -116,6 +116,8 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
                 'core.context_processors.banner_turno',
                 'core.context_processors.datos_footer',
+                'core.context_processors.navegacion_tienda',
+                'core.context_processors.carrito_resumen',
             ],
         },
     },
@@ -178,6 +180,9 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+# Carpeta del proyecto con CSS/JS/imágenes propias (además de los static de cada app).
+# En desarrollo Django los sirve solo; en producción se copian a STATIC_ROOT con collectstatic.
+STATICFILES_DIRS = [BASE_DIR / 'static']
 
 # URL que vera el navegador: 
 MEDIA_URL = '/media/'

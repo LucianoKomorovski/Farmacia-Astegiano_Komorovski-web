@@ -20,6 +20,7 @@ from django.utils import timezone
 
 from aboutUs.models import SobreNosotros
 from catalogo.models import Categoria, Producto
+from core.models import Banner
 from inventario.models import StockWeb
 from pedidos.models import FranjaEnvio
 from servicios.models import Servicio
@@ -182,13 +183,26 @@ class Command(BaseCommand):
 
     def _seed_tienda(self) -> None:
         """Catálogo, stock y franjas para probar checkout local."""
+        # Categorías con ícono (Bootstrap Icons) para los chips de la portada.
         cat, _ = Categoria.objects.update_or_create(
             slug='dermocosmetica',
-            defaults={'nombre': 'Dermocosmética', 'activa': True, 'orden': 1},
+            defaults={'nombre': 'Dermocosmética', 'activa': True, 'orden': 1, 'icono': 'bi bi-droplet'},
         )
         cat_hig, _ = Categoria.objects.update_or_create(
             slug='higiene',
-            defaults={'nombre': 'Higiene', 'activa': True, 'orden': 2},
+            defaults={'nombre': 'Higiene', 'activa': True, 'orden': 2, 'icono': 'bi bi-water'},
+        )
+        cat_sol, _ = Categoria.objects.update_or_create(
+            slug='solares',
+            defaults={'nombre': 'Solares', 'activa': True, 'orden': 3, 'icono': 'bi bi-sun'},
+        )
+        cat_sup, _ = Categoria.objects.update_or_create(
+            slug='suplementos',
+            defaults={'nombre': 'Suplementos', 'activa': True, 'orden': 4, 'icono': 'bi bi-capsule'},
+        )
+        cat_bebe, _ = Categoria.objects.update_or_create(
+            slug='bebes',
+            defaults={'nombre': 'Bebés', 'activa': True, 'orden': 5, 'icono': 'bi bi-balloon-heart'},
         )
 
         productos = [
@@ -196,9 +210,11 @@ class Command(BaseCommand):
                 'sku': 'DERM-001',
                 'nombre': 'Protector solar FPS 50',
                 'slug': 'protector-solar-fps-50',
-                'categoria': cat,
+                'categoria': cat_sol,
                 'tipo': Producto.Tipo.INMEDIATO,
                 'precio': Decimal('8500.00'),
+                'precio_anterior': Decimal('11200.00'),  # → sale como oferta (-24%)
+                'destacado': True,
                 'codigo_barras': '7790001001001',
                 'stock': 25,
             },
@@ -209,6 +225,8 @@ class Command(BaseCommand):
                 'categoria': cat,
                 'tipo': Producto.Tipo.INMEDIATO,
                 'precio': Decimal('6200.00'),
+                'precio_anterior': None,
+                'destacado': True,
                 'codigo_barras': '7790001001002',
                 'stock': 15,
             },
@@ -219,6 +237,8 @@ class Command(BaseCommand):
                 'categoria': cat_hig,
                 'tipo': Producto.Tipo.INMEDIATO,
                 'precio': Decimal('2800.00'),
+                'precio_anterior': Decimal('3500.00'),  # → oferta (-20%)
+                'destacado': False,
                 'codigo_barras': '7790001001003',
                 'stock': 40,
             },
@@ -226,11 +246,25 @@ class Command(BaseCommand):
                 'sku': 'ENC-001',
                 'nombre': 'Suplemento vitamina D (encargue)',
                 'slug': 'suplemento-vitamina-d',
-                'categoria': cat,
+                'categoria': cat_sup,
                 'tipo': Producto.Tipo.ENCARGUE,
                 'precio': Decimal('4500.00'),
+                'precio_anterior': None,
+                'destacado': True,
                 'codigo_praxys': 'PRX-99001',
                 'stock': 0,
+            },
+            {
+                'sku': 'BEBE-001',
+                'nombre': 'Óleo calcáreo 200 ml',
+                'slug': 'oleo-calcareo-200',
+                'categoria': cat_bebe,
+                'tipo': Producto.Tipo.INMEDIATO,
+                'precio': Decimal('3900.00'),
+                'precio_anterior': None,
+                'destacado': True,
+                'codigo_barras': '7790001001005',
+                'stock': 12,
             },
         ]
 
@@ -259,6 +293,31 @@ class Command(BaseCommand):
             )
             estado = 'creada' if created else 'actualizada'
             self.stdout.write(f'  Franja {estado}: {obj.nombre}')
+
+        # Banners de portada sin imagen: se dibujan con el fondo de marca.
+        banners = [
+            {
+                'titulo': 'Tu farmacia de Las Parejas, ahora online',
+                'subtitulo': 'Comprá desde casa y retirá gratis en Astegiano o Komorovski, o recibilo en tu domicilio.',
+                'link': '/tienda/',
+                'texto_boton': 'Ver la tienda',
+                'orden': 1,
+            },
+            {
+                'titulo': 'Ofertas de la semana en solares e higiene',
+                'subtitulo': 'Descuentos reales, sin letra chica. Pagá con Mercado Pago o transferencia.',
+                'link': '/tienda/?oferta=1',
+                'texto_boton': 'Ver ofertas',
+                'orden': 2,
+            },
+        ]
+        for b in banners:
+            obj, created = Banner.objects.update_or_create(
+                titulo=b['titulo'],
+                defaults={**b, 'activo': True},
+            )
+            estado = 'creado' if created else 'actualizado'
+            self.stdout.write(f'  Banner {estado}: {obj.titulo}')
 
     def _seed_staff(self) -> None:
         """Usuario staff para probar transferencias y encargues en admin."""

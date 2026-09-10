@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="Producto sin imagen">
+  <rect width="200" height="200" fill="#E3F3EE"/>
+  <!-- Frasco estilizado -->
+  <rect x="78" y="46" width="44" height="18" rx="4" fill="#0E8A6D" opacity="0.85"/>
+  <rect x="66" y="64" width="68" height="94" rx="12" fill="#0E8A6D" opacity="0.55"/>
+  <rect x="80" y="92" width="40" height="34" rx="4" fill="#fff" opacity="0.9"/>
+  <path d="M96 100h8v6h6v8h-6v6h-8v-6h-6v-8h6z" fill="#0E8A6D"/>
+  <text x="100" y="182" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600" fill="#52606D">Imagen pr&#243;ximamente</text>
+</svg>

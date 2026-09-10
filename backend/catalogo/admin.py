@@ -7,8 +7,8 @@ from .models import Categoria, Producto
 
 @admin.register(Categoria)
 class CategoriaAdmin(admin.ModelAdmin):
-    list_display = ('nombre', 'activa', 'orden')
-    list_editable = ('activa', 'orden')
+    list_display = ('nombre', 'activa', 'orden', 'icono')
+    list_editable = ('activa', 'orden', 'icono')
     prepopulated_fields = {'slug': ('nombre',)}
     search_fields = ('nombre',)
 
@@ -21,11 +21,13 @@ class ProductoAdmin(admin.ModelAdmin):
         'categoria',
         'tipo',
         'precio',
+        'precio_anterior',
+        'destacado',
         'activo',
         'requiere_receta',
     )
-    list_filter = ('tipo', 'activo', 'requiere_receta', 'categoria')
-    list_editable = ('activo',)
+    list_filter = ('tipo', 'activo', 'destacado', 'requiere_receta', 'categoria')
+    list_editable = ('activo', 'destacado', 'precio_anterior')
     search_fields = ('nombre', 'sku', 'codigo_barras', 'codigo_praxys')
     prepopulated_fields = {'slug': ('nombre',)}
     autocomplete_fields = ('categoria',)
@@ -46,6 +48,10 @@ class ProductoAdmin(admin.ModelAdmin):
             'description': 'sku es de la web; los otros sirven para cruzar con Praxys.',
         }),
         ('Venta', {
-            'fields': ('tipo', 'precio', 'activo', 'requiere_receta'),
+            'fields': ('tipo', 'precio', 'precio_anterior', 'destacado', 'activo', 'requiere_receta'),
+            'description': (
+                'Si "precio anterior" es mayor que "precio", el producto sale como OFERTA '
+                'con el porcentaje calculado automáticamente.'
+            ),
         }),
     )
