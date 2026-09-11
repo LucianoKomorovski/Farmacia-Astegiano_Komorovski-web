@@ -8,7 +8,24 @@ python manage.py migrate
 python manage.py seed_datos
 ```
 
-Crea productos con stock, franjas de envío y usuario staff (`staff` / `staff1234`).
+Crea productos con stock y franjas de envío. **No** crea un usuario staff con contraseña conocida.
+
+Para entrar al admin en sandbox, definí una contraseña local (no la subas al repo):
+
+```text
+# backend/.env
+SEED_STAFF_PASSWORD=elegí-una-propia
+```
+
+o pasala al comando / creá el superusuario a mano:
+
+```bash
+python manage.py seed_datos --staff-password 'elegí-una-propia'
+# o:
+python manage.py createsuperuser
+```
+
+En una terminal interactiva, `seed_datos` también puede pedir la contraseña. Con `DEBUG=False` el seed **nunca** crea este usuario.
 
 ## 2. Mercado Pago sandbox
 
