@@ -44,6 +44,18 @@ class MercadoPagoMockTests(TestCase):
             nombre_snapshot='P', sku_snapshot='P1',
             cantidad=1, precio_unitario=Decimal('100'), subtotal=Decimal('100'),
         )
+        self.producto = prod
+
+    def _reserva_vigente(self) -> None:
+        """Inmediato solo confirma si hay reserva ACTIVA con TTL vigente."""
+        StockWeb.objects.get_or_create(producto=self.producto, defaults={'cantidad': 10})
+        ReservaStock.objects.create(
+            producto=self.producto,
+            pedido=self.pedido,
+            cantidad=1,
+            estado=ReservaStock.Estado.ACTIVA,
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
 
     @patch('pagos.services._sdk')
     def test_preferencia_local_sin_auto_return(self, mock_sdk_fn):
@@ -108,6 +120,7 @@ class MercadoPagoMockTests(TestCase):
 
     @patch('pagos.services._sdk')
     def test_procesar_notificacion_aprobada(self, mock_sdk_fn):
+        self._reserva_vigente()
         mock_sdk = MagicMock()
         mock_sdk_fn.return_value = mock_sdk
         mock_sdk.payment.return_value.get.return_value = {
@@ -196,6 +209,7 @@ class MercadoPagoMockTests(TestCase):
     @patch('pagos.services._sdk')
     def test_doble_webhook_mismo_payment_id_un_solo_pago_aprobado(self, mock_sdk_fn):
         """Reintento de MP no crea un segundo Pago aprobado ni re-confirma el pedido."""
+        self._reserva_vigente()
         Pago.objects.create(
             pedido=self.pedido,
             medio=Pago.Medio.MERCADOPAGO,

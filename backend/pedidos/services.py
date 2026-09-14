@@ -181,6 +181,7 @@ def confirmar_pedido(pedido: Pedido, via_pago=None, actor=None) -> None:
         try:
             consolidar_reservas_pedido(pedido)
         except StockError as exc:
+            # Callers (webhook, staff) esperan PedidoError, no StockError crudo.
             raise PedidoError(str(exc)) from exc
 
     pedido.estado = Pedido.Estado.CONFIRMADO
