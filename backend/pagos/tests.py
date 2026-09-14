@@ -4,13 +4,16 @@ from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
+from django.contrib.auth.models import User
 from django.test import RequestFactory, TestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
 
 from catalogo.models import Categoria, Producto
 from inventario.models import ReservaStock, StockWeb
 from pagos.services import (
     PagoError,
+    confirmar_transferencia,
     crear_preferencia_mp,
     procesar_notificacion_mp,
     validar_firma_webhook,
@@ -178,7 +181,7 @@ class MercadoPagoMockTests(TestCase):
 
     @patch('pagos.services._sdk')
     def test_webhook_aprobado_pedido_cancelado_no_confirma(self, mock_sdk_fn):
-        """MP llega tarde (TTL ya canceló): no confirmar, no 500, no Pago aprobado."""
+        """MP llega tarde (TTL ya canceló): no confirmar, no 500; se registra el cobro."""
         Pago.objects.create(
             pedido=self.pedido,
             medio=Pago.Medio.MERCADOPAGO,
@@ -197,12 +200,10 @@ class MercadoPagoMockTests(TestCase):
 
         self.pedido.refresh_from_db()
         self.assertEqual(self.pedido.estado, Pedido.Estado.CANCELADO)
-        self.assertEqual(
-            Pago.objects.filter(pedido=self.pedido, estado=Pago.Estado.APROBADO).count(),
-            0,
-        )
+        self.assertFalse(self.pedido.puede_pagar_online)
         pago = Pago.objects.get(pedido=self.pedido)
-        self.assertEqual(pago.estado, Pago.Estado.PENDIENTE)
+        # El dinero llegó: staff ve APROBADO + _webhook_tarde para reembolsar.
+        self.assertEqual(pago.estado, Pago.Estado.APROBADO)
         self.assertTrue(pago.raw_payload.get('_webhook_tarde'))
         self.assertEqual(pago.raw_payload.get('_pedido_estado'), Pedido.Estado.CANCELADO)
 
@@ -234,7 +235,7 @@ class MercadoPagoMockTests(TestCase):
 
     @patch('pagos.services._sdk')
     def test_inmediato_solo_reservas_expiradas_webhook_no_confirma(self, mock_sdk_fn):
-        """INMEDIATO con reservas ya EXPIRADA: no queda confirmado sin consolidar stock."""
+        """INMEDIATO con reservas EXPIRADA: no confirma, no queda pagable, no 500."""
         producto = Producto.objects.get(sku='P1')
         stock = StockWeb.objects.create(producto=producto, cantidad=10)
         ReservaStock.objects.create(
@@ -255,7 +256,9 @@ class MercadoPagoMockTests(TestCase):
             self.fail(f'procesar_notificacion_mp no debe lanzar PedidoError: {exc}')
 
         self.pedido.refresh_from_db()
-        self.assertEqual(self.pedido.estado, Pedido.Estado.PENDIENTE_PAGO)
+        # Si queda PENDIENTE_PAGO, la UI ofrece pagos_iniciar → segundo cobro.
+        self.assertFalse(self.pedido.puede_pagar_online)
+        self.assertEqual(self.pedido.estado, Pedido.Estado.CANCELADO)
         stock.refresh_from_db()
         self.assertEqual(stock.cantidad, 10)
         self.assertEqual(
@@ -266,8 +269,109 @@ class MercadoPagoMockTests(TestCase):
         )
         self.assertEqual(
             Pago.objects.filter(pedido=self.pedido, estado=Pago.Estado.APROBADO).count(),
+            1,
+        )
+        pago = Pago.objects.get(pedido=self.pedido)
+        self.assertTrue(pago.raw_payload.get('_webhook_tarde'))
+        self.assertEqual(pago.raw_payload.get('_pedido_estado'), Pedido.Estado.PENDIENTE_PAGO)
+
+        request = self.factory.get('/')
+        with self.assertRaises(PagoError):
+            crear_preferencia_mp(request, self.pedido)
+
+        # Reintento del mismo payment_id: un solo APROBADO, no cancela dos veces.
+        procesar_notificacion_mp('777')
+        self.assertEqual(
+            Pago.objects.filter(pedido=self.pedido, estado=Pago.Estado.APROBADO).count(),
+            1,
+        )
+        self.assertEqual(
+            self.pedido.eventos.filter(estado_nuevo=Pedido.Estado.CANCELADO).count(),
+            1,
+        )
+
+    @patch('pagos.services._sdk')
+    def test_webhook_http_reserva_expirada_devuelve_200(self, mock_sdk_fn):
+        """La vista del webhook no debe 500 si no se puede confirmar."""
+        StockWeb.objects.create(producto=self.producto, cantidad=10)
+        ReservaStock.objects.create(
+            producto=self.producto,
+            pedido=self.pedido,
+            cantidad=1,
+            estado=ReservaStock.Estado.EXPIRADA,
+            expires_at=timezone.now() - timedelta(minutes=5),
+        )
+        self._mock_pago_aprobado(mock_sdk_fn, payment_id=888)
+
+        url = reverse('pagos_webhook') + '?topic=payment&data.id=888'
+        resp = self.client.post(
+            url,
+            data='{"type":"payment","data":{"id":"888"}}',
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.pedido.refresh_from_db()
+        self.assertFalse(self.pedido.puede_pagar_online)
+
+
+class TransferenciaConfirmTests(TestCase):
+    """Staff confirma transferencia: si consolidar falla, el Pago no queda APROBADO."""
+
+    def setUp(self):
+        cat = Categoria.objects.create(nombre='T', slug='t')
+        prod = Producto.objects.create(
+            categoria=cat, nombre='P', slug='p-tr', sku='PTR1',
+            descripcion='', tipo=Producto.Tipo.INMEDIATO,
+            precio=Decimal('100'), activo=True,
+        )
+        StockWeb.objects.create(producto=prod, cantidad=10)
+        self.staff = User.objects.create_user(
+            'staff', 'staff@test.com', 'x12345678', is_staff=True,
+        )
+        self.pedido = Pedido.objects.create(
+            numero='FA-2026-000098',
+            nombre_cliente='Test', email='t@test.com', telefono='1',
+            estado=Pedido.Estado.PENDIENTE_TRANSFERENCIA,
+            modo=Pedido.Modo.INMEDIATO,
+            modalidad_entrega=Pedido.ModalidadEntrega.A_COORDINAR,
+            medio_pago=Pedido.MedioPago.TRANSFERENCIA,
+            subtotal=Decimal('100'), total=Decimal('100'),
+        )
+        LineaPedido.objects.create(
+            pedido=self.pedido, producto=prod,
+            nombre_snapshot='P', sku_snapshot='PTR1',
+            cantidad=1, precio_unitario=Decimal('100'), subtotal=Decimal('100'),
+        )
+        ReservaStock.objects.create(
+            producto=prod,
+            pedido=self.pedido,
+            cantidad=1,
+            estado=ReservaStock.Estado.EXPIRADA,
+            expires_at=timezone.now() - timedelta(minutes=5),
+        )
+        Pago.objects.create(
+            pedido=self.pedido,
+            medio=Pago.Medio.TRANSFERENCIA,
+            estado=Pago.Estado.PENDIENTE,
+            monto=self.pedido.total,
+        )
+
+    def test_reserva_expirada_revierte_pago_y_no_duplica_en_reintento(self):
+        with self.assertRaises(PedidoError):
+            confirmar_transferencia(self.pedido, self.staff)
+
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.PENDIENTE_TRANSFERENCIA)
+        self.assertEqual(
+            Pago.objects.filter(pedido=self.pedido, estado=Pago.Estado.APROBADO).count(),
             0,
         )
-        pago = Pago.objects.filter(pedido=self.pedido).first()
-        self.assertIsNotNone(pago)
-        self.assertTrue(pago.raw_payload.get('_webhook_tarde'))
+
+        with self.assertRaises(PedidoError):
+            confirmar_transferencia(self.pedido, self.staff)
+
+        self.assertEqual(
+            Pago.objects.filter(pedido=self.pedido, estado=Pago.Estado.APROBADO).count(),
+            0,
+        )
+        self.assertEqual(Pago.objects.filter(pedido=self.pedido).count(), 1)
