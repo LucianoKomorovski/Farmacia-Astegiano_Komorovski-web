@@ -6,7 +6,6 @@ from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.models import User
 from django.test import RequestFactory, TestCase, override_settings
-from django.urls import reverse
 from django.utils import timezone
 
 from catalogo.models import Categoria, Producto
@@ -293,6 +292,8 @@ class MercadoPagoMockTests(TestCase):
     @patch('pagos.services._sdk')
     def test_webhook_http_reserva_expirada_devuelve_200(self, mock_sdk_fn):
         """La vista del webhook no debe 500 si no se puede confirmar."""
+        from pagos.views import webhook_mp
+
         StockWeb.objects.create(producto=self.producto, cantidad=10)
         ReservaStock.objects.create(
             producto=self.producto,
@@ -303,12 +304,12 @@ class MercadoPagoMockTests(TestCase):
         )
         self._mock_pago_aprobado(mock_sdk_fn, payment_id=888)
 
-        url = reverse('pagos_webhook') + '?topic=payment&data.id=888'
-        resp = self.client.post(
-            url,
-            data='{"type":"payment","data":{"id":"888"}}',
+        request = self.factory.post(
+            '/pagos/webhook/?topic=payment&data.id=888',
+            data=b'{"type":"payment","data":{"id":"888"}}',
             content_type='application/json',
         )
+        resp = webhook_mp(request)
         self.assertEqual(resp.status_code, 200)
         self.pedido.refresh_from_db()
         self.assertFalse(self.pedido.puede_pagar_online)
