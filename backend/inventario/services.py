@@ -74,10 +74,32 @@ def reservar_stock_para_pedido(pedido, lineas: list) -> None:
 @transaction.atomic
 def consolidar_reservas_pedido(pedido) -> None:
     """Pago OK: baja stock_web y marca reservas como consolidadas."""
-    reservas = ReservaStock.objects.select_for_update().filter(
-        pedido=pedido,
-        estado=ReservaStock.Estado.ACTIVA,
+    reservas = list(
+        ReservaStock.objects.select_for_update().filter(
+            pedido=pedido,
+            estado=ReservaStock.Estado.ACTIVA,
+        )
     )
+
+    # Si el TTL ya soltó el stock, no confirmar en silencio (queda plata cobrada y stock intacto).
+    if not reservas:
+        stock_ya_liberado = (
+            ReservaStock.objects.select_for_update()
+            .filter(
+                pedido=pedido,
+                estado__in=(
+                    ReservaStock.Estado.EXPIRADA,
+                    ReservaStock.Estado.LIBERADA,
+                ),
+            )
+            .exists()
+        )
+        if stock_ya_liberado:
+            raise StockError(
+                f'No se puede confirmar el pedido {pedido.numero}: '
+                'las reservas de stock ya expiraron o fueron liberadas.'
+            )
+        return
 
     for reserva in reservas:
         stock = (

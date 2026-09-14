@@ -15,7 +15,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from pedidos.models import Pedido
-from pedidos.services import confirmar_pedido, confirmar_transferencia_staff
+from pedidos.services import PedidoError, confirmar_pedido, confirmar_transferencia_staff
 
 from .models import Pago
 
@@ -194,6 +194,40 @@ def validar_firma_webhook(request) -> bool:
     return hmac.compare_digest(expected, received_hash)
 
 
+def _buscar_pago_mp(pedido: Pedido, payment_id: str, data: dict[str, Any]) -> Pago | None:
+    """Reintenta de MP: primero payment_id, después preference_id."""
+    ids_pago = {str(payment_id)}
+    data_id = data.get('id')
+    if data_id is not None and str(data_id):
+        ids_pago.add(str(data_id))
+
+    pago = (
+        Pago.objects.filter(pedido=pedido, id_externo__in=ids_pago)
+        .order_by('-created_at')
+        .first()
+    )
+    if pago is not None:
+        return pago
+
+    preference_id = data.get('preference_id') or ''
+    if not preference_id:
+        return None
+    return (
+        Pago.objects.filter(pedido=pedido, id_externo=str(preference_id))
+        .order_by('-created_at')
+        .first()
+    )
+
+
+def _persistir_webhook_tarde(pago: Pago, data: dict[str, Any], pedido: Pedido) -> None:
+    """Guarda el aviso de MP sin tratarlo como confirmación del pedido."""
+    payload = dict(data)
+    payload['_webhook_tarde'] = True
+    payload['_pedido_estado'] = pedido.estado
+    pago.raw_payload = payload
+    pago.save(update_fields=['raw_payload', 'id_externo'])
+
+
 @transaction.atomic
 def procesar_notificacion_mp(payment_id: str) -> None:
     """Consulta el pago en MP y actualiza pedido si fue aprobado."""
@@ -216,28 +250,67 @@ def procesar_notificacion_mp(payment_id: str) -> None:
         return
 
     estado_mp = data.get('status', '')
-    pago = (
-        Pago.objects.filter(pedido=pedido, id_externo=data.get('preference_id', ''))
-        .order_by('-created_at')
-        .first()
-    )
+    payment_id_str = str(data.get('id', payment_id))
+    pago = _buscar_pago_mp(pedido, payment_id, data)
     if pago is None:
         pago = Pago.objects.create(
             pedido=pedido,
             medio=pedido.medio_pago,
             monto=Decimal(str(data.get('transaction_amount', pedido.total))),
-            id_externo=str(data.get('id', payment_id)),
+            id_externo=payment_id_str,
         )
 
     pago.raw_payload = data
-    pago.id_externo = str(data.get('id', payment_id))
+    pago.id_externo = payment_id_str
+
+    estados_pagables = (
+        Pedido.Estado.PENDIENTE_PAGO,
+        Pedido.Estado.PENDIENTE_PAGO_ENCARGUE,
+    )
 
     if estado_mp == 'approved':
+        # Reintento después de confirmar: sincronizar Pago y no volver a confirmar.
+        if pedido.estado == Pedido.Estado.CONFIRMADO:
+            if pago.estado != Pago.Estado.APROBADO:
+                pago.estado = Pago.Estado.APROBADO
+                pago.confirmado_en = timezone.now()
+                pago.save()
+            else:
+                pago.save(update_fields=['raw_payload', 'id_externo'])
+            return
+
+        # TTL / cancelado / otro estado: no confirmar ni marcar aprobado (evita 500 → retry MP).
+        if pedido.estado not in estados_pagables:
+            _persistir_webhook_tarde(pago, data, pedido)
+            logger.warning(
+                'Webhook MP tarde: pedido %s en estado %s (payment_id=%s). '
+                'No se confirma ni se marca el pago como aprobado.',
+                pedido.numero,
+                pedido.estado,
+                payment_id_str,
+            )
+            return
+
+        try:
+            confirmar_pedido(pedido, via_pago=pago)
+        except PedidoError as exc:
+            # Reserva ya EXPIRADA/LIBERADA u otro rechazo de dominio: mismo trato que tarde.
+            _persistir_webhook_tarde(pago, data, pedido)
+            logger.warning(
+                'Webhook MP no pudo confirmar pedido %s (estado=%s, payment_id=%s): %s',
+                pedido.numero,
+                pedido.estado,
+                payment_id_str,
+                exc,
+            )
+            return
+
         if pago.estado != Pago.Estado.APROBADO:
             pago.estado = Pago.Estado.APROBADO
             pago.confirmado_en = timezone.now()
             pago.save()
-            confirmar_pedido(pedido, via_pago=pago)
+        else:
+            pago.save(update_fields=['raw_payload', 'id_externo'])
     elif estado_mp in ('rejected', 'cancelled'):
         pago.estado = Pago.Estado.RECHAZADO
         pago.save(update_fields=['estado', 'raw_payload', 'id_externo'])
