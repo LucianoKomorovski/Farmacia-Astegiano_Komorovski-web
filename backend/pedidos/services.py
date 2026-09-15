@@ -178,7 +178,11 @@ def confirmar_pedido(pedido: Pedido, via_pago=None, actor=None) -> None:
 
     anterior = pedido.estado
     if pedido.modo == Pedido.Modo.INMEDIATO:
-        consolidar_reservas_pedido(pedido)
+        try:
+            consolidar_reservas_pedido(pedido)
+        except StockError as exc:
+            # Callers (webhook, staff) esperan PedidoError, no StockError crudo.
+            raise PedidoError(str(exc)) from exc
 
     pedido.estado = Pedido.Estado.CONFIRMADO
     pedido.confirmado_en = timezone.now()
@@ -199,7 +203,10 @@ def confirmar_transferencia_staff(pedido: Pedido, actor, via_pago=None) -> None:
 
     anterior = pedido.estado
     if pedido.modo == Pedido.Modo.INMEDIATO:
-        consolidar_reservas_pedido(pedido)
+        try:
+            consolidar_reservas_pedido(pedido)
+        except StockError as exc:
+            raise PedidoError(str(exc)) from exc
 
     pedido.estado = Pedido.Estado.CONFIRMADO
     pedido.confirmado_en = timezone.now()

@@ -15,7 +15,12 @@ from django.urls import reverse
 from django.utils import timezone
 
 from pedidos.models import Pedido
-from pedidos.services import confirmar_pedido, confirmar_transferencia_staff
+from pedidos.services import (
+    PedidoError,
+    cancelar_pedido,
+    confirmar_pedido,
+    confirmar_transferencia_staff,
+)
 
 from .models import Pago
 
@@ -194,6 +199,73 @@ def validar_firma_webhook(request) -> bool:
     return hmac.compare_digest(expected, received_hash)
 
 
+def _buscar_pago_mp(pedido: Pedido, payment_id: str, data: dict[str, Any]) -> Pago | None:
+    """Reintenta de MP: primero payment_id, después preference_id."""
+    ids_pago = {str(payment_id)}
+    data_id = data.get('id')
+    if data_id is not None and str(data_id):
+        ids_pago.add(str(data_id))
+
+    pago = (
+        Pago.objects.filter(pedido=pedido, id_externo__in=ids_pago)
+        .order_by('-created_at')
+        .first()
+    )
+    if pago is not None:
+        return pago
+
+    preference_id = data.get('preference_id') or ''
+    if not preference_id:
+        return None
+    return (
+        Pago.objects.filter(pedido=pedido, id_externo=str(preference_id))
+        .order_by('-created_at')
+        .first()
+    )
+
+
+def _persistir_webhook_tarde(
+    pago: Pago,
+    data: dict[str, Any],
+    estado_pedido: str,
+) -> None:
+    """Guarda el cobro de MP sin confirmar el pedido (conciliación / reembolso).
+
+    El dinero llegó (status approved) pero no se consolidó stock. Marcamos el
+    Pago APROBADO para que staff lo vea, con _webhook_tarde para no confundirlo
+    con una confirmación exitosa.
+    """
+    payload = dict(data)
+    payload['_webhook_tarde'] = True
+    payload['_pedido_estado'] = estado_pedido
+    pago.raw_payload = payload
+    campos = ['raw_payload', 'id_externo']
+    # Idempotente: el mismo payment_id no vuelve a "aprobar" un Pago ya marcado.
+    if pago.estado != Pago.Estado.APROBADO:
+        pago.estado = Pago.Estado.APROBADO
+        pago.confirmado_en = timezone.now()
+        campos.extend(['estado', 'confirmado_en'])
+    pago.save(update_fields=campos)
+
+
+def _cancelar_si_sigue_pagable_online(pedido: Pedido, motivo: str) -> None:
+    """Saca el pedido de pendiente_pago para que no se abra otro Checkout Pro."""
+    if pedido.estado not in (
+        Pedido.Estado.PENDIENTE_PAGO,
+        Pedido.Estado.PENDIENTE_PAGO_ENCARGUE,
+    ):
+        return
+    try:
+        cancelar_pedido(pedido, motivo=motivo)
+    except PedidoError as exc:
+        # No re-lanzamos: el webhook debe responder 200 igual.
+        logger.warning(
+            'No se pudo cancelar pedido %s tras webhook tarde: %s',
+            pedido.numero,
+            exc,
+        )
+
+
 @transaction.atomic
 def procesar_notificacion_mp(payment_id: str) -> None:
     """Consulta el pago en MP y actualiza pedido si fue aprobado."""
@@ -216,28 +288,75 @@ def procesar_notificacion_mp(payment_id: str) -> None:
         return
 
     estado_mp = data.get('status', '')
-    pago = (
-        Pago.objects.filter(pedido=pedido, id_externo=data.get('preference_id', ''))
-        .order_by('-created_at')
-        .first()
-    )
+    payment_id_str = str(data.get('id', payment_id))
+    pago = _buscar_pago_mp(pedido, payment_id, data)
     if pago is None:
         pago = Pago.objects.create(
             pedido=pedido,
             medio=pedido.medio_pago,
             monto=Decimal(str(data.get('transaction_amount', pedido.total))),
-            id_externo=str(data.get('id', payment_id)),
+            id_externo=payment_id_str,
         )
 
     pago.raw_payload = data
-    pago.id_externo = str(data.get('id', payment_id))
+    pago.id_externo = payment_id_str
+
+    estados_pagables = (
+        Pedido.Estado.PENDIENTE_PAGO,
+        Pedido.Estado.PENDIENTE_PAGO_ENCARGUE,
+    )
 
     if estado_mp == 'approved':
+        # Reintento después de confirmar: sincronizar Pago y no volver a confirmar.
+        if pedido.estado == Pedido.Estado.CONFIRMADO:
+            if pago.estado != Pago.Estado.APROBADO:
+                pago.estado = Pago.Estado.APROBADO
+                pago.confirmado_en = timezone.now()
+                pago.save()
+            else:
+                pago.save(update_fields=['raw_payload', 'id_externo'])
+            return
+
+        # TTL / cancelado / otro estado: no confirmar (evita 500 → retry MP).
+        if pedido.estado not in estados_pagables:
+            logger.warning(
+                'Webhook MP tarde: pedido %s en estado %s (payment_id=%s). '
+                'Se registra el cobro para conciliar; no se confirma el pedido.',
+                pedido.numero,
+                pedido.estado,
+                payment_id_str,
+            )
+            _persistir_webhook_tarde(pago, data, pedido.estado)
+            return
+
+        try:
+            confirmar_pedido(pedido, via_pago=pago)
+        except PedidoError as exc:
+            # Reserva EXPIRADA/LIBERADA: no dejar el pedido pagable (doble cobro).
+            # refresh: el savepoint de confirmar_pedido se revirtió; la instancia
+            # en memoria podría haber quedado a medio camino.
+            pedido.refresh_from_db()
+            estado_al_fallar = pedido.estado
+            logger.warning(
+                'Webhook MP no pudo confirmar pedido %s (estado=%s, payment_id=%s): %s',
+                pedido.numero,
+                estado_al_fallar,
+                payment_id_str,
+                exc,
+            )
+            _cancelar_si_sigue_pagable_online(
+                pedido,
+                motivo='Webhook Mercado Pago tarde: no se pudo confirmar (reserva expirada).',
+            )
+            _persistir_webhook_tarde(pago, data, estado_al_fallar)
+            return
+
         if pago.estado != Pago.Estado.APROBADO:
             pago.estado = Pago.Estado.APROBADO
             pago.confirmado_en = timezone.now()
             pago.save()
-            confirmar_pedido(pedido, via_pago=pago)
+        else:
+            pago.save(update_fields=['raw_payload', 'id_externo'])
     elif estado_mp in ('rejected', 'cancelled'):
         pago.estado = Pago.Estado.RECHAZADO
         pago.save(update_fields=['estado', 'raw_payload', 'id_externo'])
@@ -256,8 +375,14 @@ def registrar_transferencia_pendiente(pedido: Pedido) -> Pago:
     )
 
 
+@transaction.atomic
 def confirmar_transferencia(pedido: Pedido, staff_user) -> None:
-    """Staff confirma que llegó la transferencia."""
+    """Staff confirma que llegó la transferencia.
+
+    Toda la confirmación va en una transacción (como el webhook): si
+    consolidar falla (reserva EXPIRADA), se revierte el Pago APROBADO.
+    Si no, un reintento no encuentra PENDIENTE y crea un segundo APROBADO.
+    """
     pago = (
         pedido.pagos.filter(medio=Pago.Medio.TRANSFERENCIA, estado=Pago.Estado.PENDIENTE)
         .order_by('-created_at')

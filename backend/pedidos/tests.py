@@ -1,12 +1,21 @@
+from datetime import timedelta
 from decimal import Decimal
 
+from django.contrib.auth.models import User
 from django.test import TestCase, Client
 from django.urls import reverse
+from django.utils import timezone
 
 from catalogo.models import Categoria, Producto
 from inventario.models import ReservaStock, StockWeb
 from pedidos.models import Pedido
-from pedidos.services import cancelar_pedido, confirmar_pedido, crear_pedido_desde_carrito
+from pedidos.services import (
+    PedidoError,
+    cancelar_pedido,
+    confirmar_pedido,
+    confirmar_transferencia_staff,
+    crear_pedido_desde_carrito,
+)
 from carrito.models import Carrito, LineaCarrito
 
 
@@ -88,6 +97,61 @@ class ReservaStockTests(TestCase):
         self.assertEqual(stock.cantidad, 10)
         disponible = stock.cantidad_disponible
         self.assertEqual(disponible, 10)
+
+    def _crear_pedido_inmediato(self, medio_pago: str) -> Pedido:
+        request = type('R', (), {'user': type('U', (), {'is_authenticated': False})()})()
+        datos = {
+            'nombre_cliente': 'Juan',
+            'email': 'juan@test.com',
+            'telefono': '3510000000',
+            'modalidad_entrega': Pedido.ModalidadEntrega.A_COORDINAR,
+            'medio_pago': medio_pago,
+            'notas': '',
+        }
+        return crear_pedido_desde_carrito(request, self.carrito, datos)
+
+    def test_confirmar_pedido_falla_si_reserva_expirada(self):
+        pedido = self._crear_pedido_inmediato(Pedido.MedioPago.MERCADOPAGO)
+        ReservaStock.objects.filter(pedido=pedido).update(
+            estado=ReservaStock.Estado.EXPIRADA,
+        )
+
+        with self.assertRaises(PedidoError):
+            confirmar_pedido(pedido)
+
+        pedido.refresh_from_db()
+        stock = StockWeb.objects.get(producto=self.producto)
+        self.assertEqual(stock.cantidad, 10)
+        self.assertEqual(pedido.estado, Pedido.Estado.PENDIENTE_PAGO)
+
+    def test_confirmar_pedido_falla_si_reserva_ttl_vencido(self):
+        pedido = self._crear_pedido_inmediato(Pedido.MedioPago.MERCADOPAGO)
+        ReservaStock.objects.filter(pedido=pedido).update(
+            expires_at=timezone.now() - timedelta(minutes=1),
+        )
+
+        with self.assertRaises(PedidoError):
+            confirmar_pedido(pedido)
+
+        pedido.refresh_from_db()
+        stock = StockWeb.objects.get(producto=self.producto)
+        self.assertEqual(stock.cantidad, 10)
+        self.assertEqual(pedido.estado, Pedido.Estado.PENDIENTE_PAGO)
+
+    def test_confirmar_transferencia_falla_si_reserva_expirada(self):
+        staff = User.objects.create_user('staff', 'staff@test.com', 'x12345678', is_staff=True)
+        pedido = self._crear_pedido_inmediato(Pedido.MedioPago.TRANSFERENCIA)
+        ReservaStock.objects.filter(pedido=pedido).update(
+            estado=ReservaStock.Estado.EXPIRADA,
+        )
+
+        with self.assertRaises(PedidoError):
+            confirmar_transferencia_staff(pedido, staff)
+
+        pedido.refresh_from_db()
+        stock = StockWeb.objects.get(producto=self.producto)
+        self.assertEqual(stock.cantidad, 10)
+        self.assertEqual(pedido.estado, Pedido.Estado.PENDIENTE_TRANSFERENCIA)
 
 
 class PedidoAccesoTests(TestCase):
