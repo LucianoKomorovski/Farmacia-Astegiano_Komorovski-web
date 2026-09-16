@@ -5,15 +5,30 @@ Uso (desde la carpeta backend, con el venv activo):
 
 Es idempotente: si ya existen las sucursales, no duplica.
 
+Usuario staff (solo con DEBUG=True; no hay contraseña por defecto):
+    # Opción 1: variable de entorno local (no la subas al repo)
+    SEED_STAFF_PASSWORD='elegí-una-propia' python manage.py seed_datos
+    # Opción 2: argumento (visible en el historial de la terminal)
+    python manage.py seed_datos --staff-password 'elegí-una-propia'
+    # Opción 3: en una terminal interactiva, el comando pide la contraseña
+    # Opción 4: crear el superusuario a mano
+    python manage.py createsuperuser
+
+Con DEBUG=False no se crea ni actualiza ese usuario (no-op).
+
 Alternativa desde fixture versionada (misma data de ejemplo):
     python manage.py loaddata datos_iniciales
 """
 
 from __future__ import annotations
 
+import getpass
+import os
+import sys
 from datetime import time, timedelta
 from decimal import Decimal
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.utils import timezone
@@ -33,6 +48,21 @@ User = get_user_model()
 class Command(BaseCommand):
     help = 'Carga sucursales, servicios, farmacias de turno, tienda de ejemplo y usuario staff'
 
+    def add_arguments(self, parser) -> None:
+        parser.add_argument(
+            '--staff-username',
+            default=os.environ.get('SEED_STAFF_USERNAME', 'staff'),
+            help='Usuario staff de sandbox (también SEED_STAFF_USERNAME).',
+        )
+        parser.add_argument(
+            '--staff-password',
+            default='',
+            help=(
+                'Contraseña del staff. Si se omite, usa SEED_STAFF_PASSWORD; '
+                'si tampoco está, pide por consola o no crea el usuario.'
+            ),
+        )
+
     def handle(self, *args: object, **options: object) -> None:
         self._seed_sucursales()
         self._seed_farmacias_turno()
@@ -40,7 +70,10 @@ class Command(BaseCommand):
         self._seed_turnos()
         self._seed_sobre_nosotros()
         self._seed_tienda()
-        self._seed_staff()
+        self._seed_staff(
+            username=str(options.get('staff_username') or 'staff'),
+            password=str(options.get('staff_password') or ''),
+        )
         self.stdout.write(self.style.SUCCESS('Datos iniciales listos.'))
 
     def _seed_sucursales(self) -> None:
@@ -319,21 +352,62 @@ class Command(BaseCommand):
             estado = 'creado' if created else 'actualizado'
             self.stdout.write(f'  Banner {estado}: {obj.titulo}')
 
-    def _seed_staff(self) -> None:
-        """Usuario staff para probar transferencias y encargues en admin."""
+    def _password_staff(self, password: str) -> str:
+        """Contraseña desde argumento, env, o consola interactiva. Nunca un default."""
+        if password.strip():
+            return password.strip()
+        env_password = os.environ.get('SEED_STAFF_PASSWORD', '').strip()
+        if env_password:
+            return env_password
+        # Solo pedimos por teclado en una terminal real; en tests/CI no bloqueamos.
+        if sys.stdin.isatty():
+            try:
+                return getpass.getpass(
+                    'Contraseña para el usuario staff (Enter para omitir): '
+                ).strip()
+            except (EOFError, KeyboardInterrupt):
+                self.stdout.write('')
+                return ''
+        return ''
+
+    def _seed_staff(self, username: str = 'staff', password: str = '') -> None:
+        """Usuario staff para probar transferencias y encargues en admin.
+
+        No crea nada si DEBUG=False o si no hay contraseña (env / flag / consola).
+        """
+        if not settings.DEBUG:
+            self.stdout.write(
+                self.style.WARNING(
+                    '  Staff omitido: seed_datos no crea usuarios cuando DEBUG=False.'
+                )
+            )
+            return
+
+        username = username.strip() or 'staff'
+        password = self._password_staff(password)
+        if not password:
+            self.stdout.write(
+                self.style.WARNING(
+                    '  Staff omitido: no hay contraseña. Definí SEED_STAFF_PASSWORD, '
+                    'pasá --staff-password, o creá el usuario con createsuperuser.'
+                )
+            )
+            return
+
         user, created = User.objects.get_or_create(
-            username='staff',
+            username=username,
             defaults={
-                'email': 'staff@farmacia.local',
+                'email': f'{username}@farmacia.local',
                 'is_staff': True,
                 'is_superuser': True,
             },
         )
         if created:
-            user.set_password('staff1234')
+            user.set_password(password)
             user.save()
+            # No imprimimos la contraseña: queda solo en el entorno local.
             self.stdout.write(
-                self.style.SUCCESS('  Staff creado: usuario=staff / contraseña=staff1234')
+                self.style.SUCCESS(f'  Staff creado: usuario={username}')
             )
         else:
-            self.stdout.write('  Staff ya existía: usuario=staff')
+            self.stdout.write(f'  Staff ya existía: usuario={username}')
