@@ -11,5 +11,10 @@ class SobreNosotros(models.Model):
     help_text='Suba una imagen de la empresa',
   )
 
+  class Meta:
+    # Nombres que se muestran en el panel (evita el plural automático "Sobre nosotross").
+    verbose_name = 'sección Quiénes somos'
+    verbose_name_plural = 'sección Quiénes somos'
+
   def __str__(self) -> str:
     return str(self.titulo)

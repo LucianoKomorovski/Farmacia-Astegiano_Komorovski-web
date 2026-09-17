@@ -13,6 +13,12 @@ ORDENES_VALIDOS: dict[str, str] = {
     'precio_desc': '-precio',
 }
 
+# Orígenes de perfume que aceptamos en ?origen= (mismas claves del modelo).
+ORIGENES_PERFUME_VALIDOS: frozenset[str] = frozenset(
+    Producto.OrigenPerfume.values,
+)
+SLUG_PERFUMES = 'perfumes'
+
 # Cuántos productos relacionados se muestran al pie de la ficha.
 MAX_RELACIONADOS = 4
 
@@ -39,6 +45,7 @@ class ProductoListView(ListView):
       ?q=texto        → busca en nombre, SKU y descripción
       ?categoria=slug → filtra por categoría activa
       ?oferta=1       → solo productos con precio anterior mayor al actual
+      ?origen=clave   → nacional | importado | arabe (perfumes)
       ?orden=clave    → nombre | precio_asc | precio_desc
       ?page=N         → paginación (12 por página)
     """
@@ -48,11 +55,7 @@ class ProductoListView(ListView):
     paginate_by = 12
 
     def get_queryset(self) -> QuerySet[Producto]:
-        # select_related evita una consulta extra por cada categoría/stock (N+1).
-        qs = (
-            Producto.objects.visibles_en_tienda()
-            .select_related('categoria', 'stock')
-        )
+        qs = Producto.objects.visibles_en_tienda()
 
         # Búsqueda: icontains = "contiene el texto, sin distinguir mayúsculas".
         # Q(...) | Q(...) arma un OR: alcanza con que matchee uno de los campos.
@@ -71,7 +74,12 @@ class ProductoListView(ListView):
 
         # Solo ofertas (?oferta=1). Cualquier valor "verdadero" alcanza.
         if self.request.GET.get('oferta'):
-            qs = qs.en_oferta()  # type: ignore[attr-defined]
+            qs = qs.en_oferta()
+
+        # Filtro de origen de perfume: solo claves de la whitelist.
+        origen = self.request.GET.get('origen', '').strip()
+        if origen in ORIGENES_PERFUME_VALIDOS:
+            qs = qs.filter(origen_perfume=origen)
 
         # Orden: solo claves de la whitelist; cualquier otra cosa usa el
         # orden por defecto del modelo (Meta.ordering = nombre).
@@ -79,7 +87,8 @@ class ProductoListView(ListView):
         if orden in ORDENES_VALIDOS:
             qs = qs.order_by(ORDENES_VALIDOS[orden])
 
-        return qs
+        # select_related al final: evita N+1 al armar cada tarjeta.
+        return qs.select_related('categoria', 'stock')
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         contexto = super().get_context_data(**kwargs)
@@ -91,11 +100,22 @@ class ProductoListView(ListView):
         contexto['categoria_actual'] = self.request.GET.get('categoria', '').strip()
         contexto['orden_actual'] = self.request.GET.get('orden', '')
         contexto['oferta_actual'] = bool(self.request.GET.get('oferta'))
+        origen = self.request.GET.get('origen', '').strip()
+        contexto['origen_actual'] = origen if origen in ORIGENES_PERFUME_VALIDOS else ''
+        contexto['es_seccion_perfumes'] = (
+            contexto['categoria_actual'] == SLUG_PERFUMES
+        )
+        contexto['origenes_perfume'] = Producto.OrigenPerfume.choices
+        contexto['origen_etiqueta'] = dict(Producto.OrigenPerfume.choices).get(
+            contexto['origen_actual'],
+            '',
+        )
         contexto['hay_filtros'] = bool(
             contexto['q_actual']
             or contexto['categoria_actual']
             or contexto['orden_actual']
             or contexto['oferta_actual']
+            or contexto['origen_actual']
         )
 
         # Objeto Categoria activa (para el título y el breadcrumb), si hay filtro.

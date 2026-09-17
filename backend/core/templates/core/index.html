@@ -7,33 +7,48 @@
 {% block hero %}
     <div class="hero-wrap py-3 py-lg-4">
         <div class="container">
-            {% if banners %}
-                {# Carrusel de Bootstrap con hasta 3 banners cargados desde el admin #}
+            {% if slides %}
+                {# Carrusel mixto: promos bancarias del día + banners de portada #}
                 <div id="carruselPortada" class="carousel slide" data-bs-ride="carousel" data-bs-interval="6000">
-                    {% if banners|length > 1 %}
+                    {% if slides|length > 1 %}
                         <div class="carousel-indicators">
-                            {% for banner in banners %}
+                            {% for slide in slides %}
                                 <button type="button"
                                         data-bs-target="#carruselPortada"
                                         data-bs-slide-to="{{ forloop.counter0 }}"
                                         {% if forloop.first %}class="active" aria-current="true"{% endif %}
-                                        aria-label="Banner {{ forloop.counter }}"></button>
+                                        aria-label="Slide {{ forloop.counter }}"></button>
                             {% endfor %}
                         </div>
                     {% endif %}
                     <div class="carousel-inner">
-                        {% for banner in banners %}
+                        {% for slide in slides %}
                             <div class="carousel-item {% if forloop.first %}active{% endif %}">
-                                <div class="banner-slide {% if banner.imagen %}con-imagen{% else %}sin-imagen{% endif %}">
-                                    {% if banner.imagen %}
-                                        <img src="{{ banner.imagen.url }}" alt="">
+                                <div class="banner-slide {% if slide.tipo == 'promo' %}es-promo{% endif %} {% if slide.imagen %}con-imagen{% else %}sin-imagen{% endif %}">
+                                    {% if slide.imagen %}
+                                        <img src="{{ slide.imagen.url }}" alt="">
                                     {% endif %}
                                     <div class="contenido">
-                                        <h2>{{ banner.titulo }}</h2>
-                                        {% if banner.subtitulo %}<p>{{ banner.subtitulo }}</p>{% endif %}
-                                        {% if banner.link %}
-                                            <a href="{{ banner.link }}" class="btn btn-light btn-lg rounded-pill px-4 mt-2">
-                                                {{ banner.texto_boton|default:"Ver más" }} <i class="bi bi-arrow-right ms-1"></i>
+                                        {% if slide.tipo == 'promo' %}
+                                            {# Un slide: las promos de hoy en fila, sin scroll #}
+                                            <span class="badge rounded-pill bg-white text-accent fw-bold mb-2">Promo bancaria · hoy</span>
+                                            <h2>{{ slide.titulo }}</h2>
+                                            <ul class="lista-promos-slide list-unstyled">
+                                                {% for promo in slide.promos %}
+                                                    <li>
+                                                        <strong>{{ promo.banco }}</strong>
+                                                        <span>{{ promo.beneficio }}</span>
+                                                        <span class="slide-detalle">{{ promo.texto_vigencia }}</span>
+                                                    </li>
+                                                {% endfor %}
+                                            </ul>
+                                        {% else %}
+                                            <h2>{{ slide.titulo }}</h2>
+                                            {% if slide.subtitulo %}<p>{{ slide.subtitulo }}</p>{% endif %}
+                                        {% endif %}
+                                        {% if slide.link %}
+                                            <a href="{{ slide.link }}" class="btn btn-light btn-lg rounded-pill px-4 mt-2">
+                                                {{ slide.texto_boton|default:"Ver más" }} <i class="bi bi-arrow-right ms-1"></i>
                                             </a>
                                         {% endif %}
                                     </div>
@@ -41,7 +56,7 @@
                             </div>
                         {% endfor %}
                     </div>
-                    {% if banners|length > 1 %}
+                    {% if slides|length > 1 %}
                         <button class="carousel-control-prev" type="button" data-bs-target="#carruselPortada" data-bs-slide="prev">
                             <span class="carousel-control-prev-icon" aria-hidden="true"></span>
                             <span class="visually-hidden">Anterior</span>
@@ -105,6 +120,59 @@
 {% endblock hero %}
 
 {% block content %}
+    {# ===== PROMOS BANCARIAS DEL DÍA ===== #}
+    {% if promos_hoy %}
+        <section id="promos-bancarias" aria-labelledby="titulo-promos-bancarias">
+            <div class="seccion-titulo">
+                <h2 id="titulo-promos-bancarias">
+                    <i class="bi bi-credit-card-2-front text-accent me-2"></i>
+                    Promos bancarias de hoy
+                    <span class="text-ink-soft fw-normal fs-6 ms-1">({{ nombre_dia_hoy }})</span>
+                </h2>
+                <a href="{% url 'promociones_bancarias' %}">Ver toda la semana <i class="bi bi-arrow-right"></i></a>
+            </div>
+            {% if promos_hoy|length == 1 %}
+                <div class="row g-3 row-cols-1 row-cols-md-2 row-cols-xl-3">
+                    <div class="col">
+                        {% include 'core/includes/tarjeta_promo_bancaria.html' with promo=promos_hoy.0 %}
+                    </div>
+                </div>
+            {% else %}
+                {# Más de una: carrusel propio, una card por slide #}
+                <div id="carruselPromosBancarias" class="carousel slide carrusel-promos-dia" data-bs-ride="carousel" data-bs-interval="7000">
+                    {% if promos_hoy|length > 1 %}
+                        <div class="carousel-indicators">
+                            {% for promo in promos_hoy %}
+                                <button type="button"
+                                        data-bs-target="#carruselPromosBancarias"
+                                        data-bs-slide-to="{{ forloop.counter0 }}"
+                                        {% if forloop.first %}class="active" aria-current="true"{% endif %}
+                                        aria-label="Promo {{ forloop.counter }}"></button>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                    <div class="carousel-inner">
+                        {% for promo in promos_hoy %}
+                            <div class="carousel-item {% if forloop.first %}active{% endif %}">
+                                <div class="carrusel-promos-dia__item">
+                                    {% include 'core/includes/tarjeta_promo_bancaria.html' with promo=promo %}
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                    <button class="carousel-control-prev" type="button" data-bs-target="#carruselPromosBancarias" data-bs-slide="prev">
+                        <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+                        <span class="visually-hidden">Anterior</span>
+                    </button>
+                    <button class="carousel-control-next" type="button" data-bs-target="#carruselPromosBancarias" data-bs-slide="next">
+                        <span class="carousel-control-next-icon" aria-hidden="true"></span>
+                        <span class="visually-hidden">Siguiente</span>
+                    </button>
+                </div>
+            {% endif %}
+        </section>
+    {% endif %}
+
     {# ===== CATEGORÍAS ===== #}
     {% if categorias %}
         <section id="categorias" aria-labelledby="titulo-categorias">
@@ -132,7 +200,7 @@
                 <h2 id="titulo-ofertas"><i class="bi bi-tag-fill text-accent me-2"></i>Ofertas</h2>
                 <a href="{% url 'catalogo_lista' %}?oferta=1">Ver todas <i class="bi bi-arrow-right"></i></a>
             </div>
-            <div class="row g-3 row-cols-2 row-cols-md-3 row-cols-lg-4">
+            <div class="row g-2 row-cols-2 row-cols-md-4 row-cols-xl-6 grilla-productos grilla-productos--home">
                 {% for producto in ofertas %}
                     <div class="col">
                         {% include 'catalogo/includes/tarjeta_producto.html' with producto=producto %}
@@ -149,7 +217,7 @@
                 <h2 id="titulo-destacados">Productos destacados</h2>
                 <a href="{% url 'catalogo_lista' %}">Ver toda la tienda <i class="bi bi-arrow-right"></i></a>
             </div>
-            <div class="row g-3 row-cols-2 row-cols-md-3 row-cols-lg-4">
+            <div class="row g-2 row-cols-2 row-cols-md-4 row-cols-xl-6 grilla-productos grilla-productos--home">
                 {% for producto in destacados %}
                     <div class="col">
                         {% include 'catalogo/includes/tarjeta_producto.html' with producto=producto %}

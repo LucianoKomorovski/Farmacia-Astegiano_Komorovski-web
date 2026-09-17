@@ -23,7 +23,7 @@
                 {% if oferta_actual %}
                     <i class="bi bi-tag-fill text-accent me-2"></i>Ofertas
                 {% elif categoria_objeto %}
-                    {{ categoria_objeto.nombre }}
+                    {{ categoria_objeto.nombre }}{% if origen_etiqueta %} · {{ origen_etiqueta }}{% endif %}
                 {% elif q_actual %}
                     Resultados para “{{ q_actual }}”
                 {% else %}
@@ -56,6 +56,7 @@
                     <form method="get" action="{% url 'catalogo_lista' %}">
                         {# Mantenemos la categoría elegida aunque se cambie el orden o la búsqueda #}
                         {% if categoria_actual %}<input type="hidden" name="categoria" value="{{ categoria_actual }}">{% endif %}
+                        {% if origen_actual %}<input type="hidden" name="origen" value="{{ origen_actual }}">{% endif %}
                         <label for="filtro-q" class="form-label small fw-semibold mb-1">Buscar</label>
                         <div class="input-group input-group-sm mb-3">
                             <input type="search"
@@ -97,15 +98,27 @@
                     <div class="small fw-semibold mb-1">Categorías</div>
                     <div class="lista-categorias">
                         {# querystring: regenera la URL actual cambiando solo esos parámetros (page vuelve a 1) #}
-                        <a href="{% querystring categoria=None page=None %}"
+                        <a href="{% querystring categoria=None origen=None page=None %}"
                            class="{% if not categoria_actual %}active{% endif %}">Todas</a>
                         {% for cat in categorias %}
-                            <a href="{% querystring categoria=cat.slug page=None %}"
+                            <a href="{% querystring categoria=cat.slug origen=None page=None %}"
                                class="{% if cat.slug == categoria_actual %}active{% endif %}">
                                 {% if cat.icono %}<i class="{{ cat.icono }} me-2 text-brand"></i>{% endif %}{{ cat.nombre }}
                             </a>
                         {% endfor %}
                     </div>
+                    {% if es_seccion_perfumes or origen_actual %}
+                        <hr class="my-3">
+                        <div class="small fw-semibold mb-1">Origen</div>
+                        <div class="lista-categorias">
+                            <a href="{% querystring origen=None page=None %}"
+                               class="{% if not origen_actual %}active{% endif %}">Todos</a>
+                            {% for clave, etiqueta in origenes_perfume %}
+                                <a href="{% querystring origen=clave page=None %}"
+                                   class="{% if origen_actual == clave %}active{% endif %}">{{ etiqueta }}</a>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
                     {% if hay_filtros %}
                         <hr class="my-3">
                         <a href="{% url 'catalogo_lista' %}"
@@ -118,7 +131,7 @@
         </aside>
         {# ===== GRILLA DE PRODUCTOS ===== #}
         <div class="col-lg-9">
-            <div class="row g-3 row-cols-2 row-cols-md-3 row-cols-xl-4">
+            <div class="row g-2 row-cols-2 row-cols-md-3 row-cols-xl-4 grilla-productos grilla-productos--tienda">
                 {% for producto in productos %}
                     <div class="col">{% include 'catalogo/includes/tarjeta_producto.html' with producto=producto %}</div>
                 {% empty %}

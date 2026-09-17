@@ -35,7 +35,12 @@
         {# ===== INFO Y COMPRA ===== #}
         <div class="col-md-7">
             {% if producto.categoria %}
-                <div class="text-uppercase small text-ink-soft fw-semibold" style="letter-spacing: .05em;">{{ producto.categoria.nombre }}</div>
+                <div class="text-uppercase small text-ink-soft fw-semibold" style="letter-spacing: .05em;">
+                    {{ producto.categoria.nombre }}
+                    {% if producto.origen_perfume %}
+                        <span class="badge rounded-pill bg-brand-soft text-brand ms-1">{{ producto.get_origen_perfume_display }}</span>
+                    {% endif %}
+                </div>
             {% endif %}
             <h1 class="h3 mb-3">{{ producto.nombre }}</h1>
 
@@ -137,7 +142,7 @@
                     <a href="{% url 'catalogo_lista' %}?categoria={{ producto.categoria.slug }}">Ver más de {{ producto.categoria.nombre }} <i class="bi bi-arrow-right"></i></a>
                 {% endif %}
             </div>
-            <div class="row g-3 row-cols-2 row-cols-md-4">
+            <div class="row g-2 row-cols-2 row-cols-md-4 grilla-productos grilla-productos--tienda">
                 {% for rel in relacionados %}
                     <div class="col">
                         {% include 'catalogo/includes/tarjeta_producto.html' with producto=rel %}

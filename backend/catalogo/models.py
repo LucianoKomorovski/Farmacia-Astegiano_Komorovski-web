@@ -40,10 +40,10 @@ class Categoria(models.Model):
 class ProductoQuerySet(QuerySet['Producto']):
     """Filtros reutilizables: el catálogo público nunca muestra receta."""
 
-    def visibles_en_tienda(self) -> QuerySet['Producto']:
+    def visibles_en_tienda(self) -> 'ProductoQuerySet':
         return self.filter(activo=True, requiere_receta=False)
 
-    def en_oferta(self) -> QuerySet['Producto']:
+    def en_oferta(self) -> 'ProductoQuerySet':
         """Solo productos con un precio anterior mayor al actual.
 
         F('precio') compara contra el valor de la misma fila (columna vs columna),
@@ -51,7 +51,7 @@ class ProductoQuerySet(QuerySet['Producto']):
         """
         return self.filter(precio_anterior__gt=F('precio'))
 
-    def destacados(self) -> QuerySet['Producto']:
+    def destacados(self) -> 'ProductoQuerySet':
         return self.filter(destacado=True)
 
 
@@ -61,6 +61,11 @@ class Producto(models.Model):
     class Tipo(models.TextChoices):
         INMEDIATO = 'inmediato', 'Venta inmediata (con stock web)'
         ENCARGUE = 'encargue', 'A encargue (confirma staff, después se cobra)'
+
+    class OrigenPerfume(models.TextChoices):
+        NACIONAL = 'nacional', 'Nacional'
+        IMPORTADO = 'importado', 'Importado'
+        ARABE = 'arabe', 'Árabe'
 
     categoria = models.ForeignKey(
         Categoria,
@@ -96,6 +101,13 @@ class Producto(models.Model):
         max_length=20,
         choices=Tipo.choices,
         default=Tipo.INMEDIATO,
+    )
+    # Solo aplica a la categoría Perfumes; en el resto se deja vacío.
+    origen_perfume = models.CharField(
+        max_length=12,
+        choices=OrigenPerfume.choices,
+        blank=True,
+        help_text='Solo para la categoría Perfumes: nacional, importado o árabe.',
     )
     precio = models.DecimalField(
         max_digits=10,

@@ -168,7 +168,8 @@ h1, h2, h3, h4, .h1, .h2, .h3, .h4 {
 }
 
 /* Reserva de espacio bajo el header sticky al saltar a anclas */
-#sucursales, #servicios, #turnos, #ofertas, #destacados, #categorias {
+#sucursales, #servicios, #turnos, #ofertas, #destacados, #categorias,
+#promos-bancarias {
     scroll-margin-top: 120px;
 }
 
@@ -293,8 +294,14 @@ h1, h2, h3, h4, .h1, .h2, .h3, .h4 {
     color: var(--brand-dark);
     border-bottom-color: var(--brand);
 }
-.nav-categorias .nav-link.es-oferta { color: var(--accent-dark); }
-.nav-categorias .nav-link.es-oferta:hover { border-bottom-color: var(--accent); }
+.nav-categorias .nav-link.es-oferta,
+.nav-categorias .nav-link.es-promo { color: var(--accent-dark); }
+.nav-categorias .nav-link.es-oferta:hover,
+.nav-categorias .nav-link.es-promo:hover,
+.nav-categorias .nav-link.es-promo.active {
+    color: var(--accent-dark);
+    border-bottom-color: var(--accent);
+}
 
 /* Offcanvas (menú mobile) */
 .offcanvas .nav-link {
@@ -353,6 +360,72 @@ h1, h2, h3, h4, .h1, .h2, .h3, .h4 {
 .hero-estatico .btn-light,
 .banner-slide .btn-light { color: var(--brand-dark); font-weight: 700; }
 
+/* Promo bancaria en el carrusel de portada: degradé cálido para distinguirla */
+.banner-slide.es-promo.sin-imagen {
+    background: linear-gradient(120deg, var(--accent-dark) 0%, var(--accent) 55%, #F5C07A 100%);
+}
+.banner-slide.es-promo .btn-light { color: var(--accent-dark); }
+.banner-slide .slide-detalle {
+    font-size: 0.8rem;
+    opacity: 0.9;
+    margin-bottom: 0;
+}
+
+/* Misma altura para todos los slides de portada */
+#carruselPortada .carousel-item,
+#carruselPortada .banner-slide {
+    height: 320px;
+    min-height: 320px;
+    max-height: 320px;
+}
+#carruselPortada .banner-slide .contenido {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    height: 100%;
+    max-height: 100%;
+    overflow: hidden;
+}
+/* El de promos usa todo el ancho para poner los bancos en fila */
+#carruselPortada .banner-slide.es-promo .contenido {
+    max-width: none;
+    width: 100%;
+}
+#carruselPortada .banner-slide.es-promo h2 {
+    font-size: clamp(1.25rem, 2.4vw, 1.8rem);
+    margin-bottom: 0.75rem;
+}
+.lista-promos-slide {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 0.75rem;
+    max-width: none;
+    width: 100%;
+    margin: 0;
+}
+.lista-promos-slide li {
+    flex: 1 1 0;
+    min-width: 0;
+    margin: 0;
+    padding: 0.7rem 0.85rem;
+    border-radius: 0.75rem;
+    background: rgba(255, 255, 255, 0.16);
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+.lista-promos-slide strong {
+    color: #fff;
+    font-size: 0.95rem;
+    line-height: 1.2;
+}
+.lista-promos-slide li > span:not(.slide-detalle) {
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 0.88rem;
+    line-height: 1.25;
+}
+
 .banner-slide.con-imagen {
     background: #000;
 }
@@ -394,6 +467,112 @@ h1, h2, h3, h4, .h1, .h2, .h3, .h4 {
         padding-left: 1.5rem;
         padding-right: 1.5rem;
     }
+}
+
+/* ---------- 5b. Promos bancarias ---------- */
+#promos-bancarias {
+    margin-bottom: 4rem;
+}
+
+.card-promo-banco {
+    display: flex;
+    gap: 1rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    padding: 1.1rem 1.2rem;
+    box-shadow: var(--shadow-sm);
+}
+.card-promo-banco__logo {
+    flex-shrink: 0;
+    width: 3.25rem;
+    height: 3.25rem;
+    border-radius: 0.75rem;
+    background: var(--accent-soft);
+    color: var(--accent-dark);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.45rem;
+    overflow: hidden;
+}
+.card-promo-banco__logo img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #fff;
+}
+.card-promo-banco__cuerpo h3 {
+    font-size: 1.05rem;
+    font-weight: 700;
+    margin: 0 0 0.25rem;
+}
+.card-promo-banco__beneficio {
+    margin: 0 0 0.5rem;
+    font-weight: 600;
+    color: var(--ink);
+}
+.card-promo-banco .meta {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--ink-soft);
+}
+.card-promo-banco__condiciones {
+    margin: 0.55rem 0 0;
+    font-size: 0.8rem;
+    color: var(--ink-soft);
+}
+
+.carrusel-promos-dia {
+    padding-bottom: 2.25rem;
+}
+.carrusel-promos-dia__item {
+    max-width: 36rem;
+    margin: 0 auto;
+    padding: 0 3.5rem;
+}
+.carrusel-promos-dia .carousel-indicators {
+    margin-bottom: 0;
+}
+.carrusel-promos-dia .carousel-indicators [data-bs-target] {
+    background-color: var(--ink-soft);
+}
+.carrusel-promos-dia .carousel-control-prev,
+.carrusel-promos-dia .carousel-control-next {
+    width: 2.75rem;
+}
+.carrusel-promos-dia .carousel-control-prev-icon,
+.carrusel-promos-dia .carousel-control-next-icon {
+    /* Los íconos de Bootstrap son blancos; acá el fondo es claro */
+    filter: invert(0.45);
+}
+
+.bloque-dia-promo {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem 1.35rem 1.4rem;
+}
+.bloque-dia-promo.es-hoy {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    box-shadow: var(--shadow-sm);
+}
+.bloque-dia-promo__cabecera {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    margin-bottom: 1rem;
+}
+.bloque-dia-promo__cabecera h2 {
+    font-size: 1.2rem;
+    font-weight: 700;
+    margin: 0;
+}
+.bloque-dia-promo.es-hoy .badge {
+    background: var(--accent);
+    color: #fff;
+    font-weight: 700;
 }
 
 /* ---------- 6. Beneficios ---------- */
@@ -537,6 +716,46 @@ h1, h2, h3, h4, .h1, .h2, .h3, .h4 {
 .estado-stock {
     font-size: 0.75rem;
     font-weight: 600;
+}
+
+/* Portada: más columnas y tarjeta más chica */
+.grilla-productos--home .tarjeta-producto .imagen img {
+    padding: 0.4rem;
+}
+.grilla-productos--home .tarjeta-producto .cuerpo {
+    padding: 0.5rem 0.6rem 0.7rem;
+}
+.grilla-productos--home .tarjeta-producto .nombre {
+    font-size: 0.8rem;
+    min-height: 2.1rem;
+    margin-bottom: 0.3rem;
+}
+.grilla-productos--home .tarjeta-producto .categoria {
+    font-size: 0.62rem;
+}
+.grilla-productos--home .precio-actual {
+    font-size: 0.95rem;
+}
+.grilla-productos--home .precio-anterior {
+    font-size: 0.72rem;
+}
+.grilla-productos--home .tarjeta-producto .badge-oferta {
+    font-size: 0.7rem;
+    padding: 0.25em 0.5em;
+    top: 0.4rem;
+    left: 0.4rem;
+}
+
+/* Tienda y relacionados: un poco más compacto, sin apiñar */
+.grilla-productos--tienda .tarjeta-producto .imagen img {
+    padding: 0.55rem;
+}
+.grilla-productos--tienda .tarjeta-producto .cuerpo {
+    padding: 0.7rem 0.8rem 0.85rem;
+}
+.grilla-productos--tienda .tarjeta-producto .nombre {
+    font-size: 0.88rem;
+    min-height: 2.3rem;
 }
 
 /* Placeholder cuando no hay imagen */
@@ -729,4 +948,17 @@ h1, h2, h3, h4, .h1, .h2, .h3, .h4 {
     .hero-estatico .contenido, .banner-slide .contenido { padding: 1.5rem; }
     .logo-sitio img { height: 36px; }
     .whatsapp-flotante { width: 3rem; height: 3rem; font-size: 1.55rem; }
+    #promos-bancarias { margin-bottom: 2.75rem; }
+    .carrusel-promos-dia__item { padding: 0 0.25rem; }
+    /* Misma altura fija también en el celu */
+    #carruselPortada .carousel-item,
+    #carruselPortada .banner-slide {
+        height: 280px;
+        min-height: 280px;
+        max-height: 280px;
+    }
+    .lista-promos-slide { gap: 0.45rem; }
+    .lista-promos-slide li { padding: 0.5rem 0.55rem; }
+    .lista-promos-slide strong { font-size: 0.8rem; }
+    .lista-promos-slide li > span:not(.slide-detalle) { font-size: 0.75rem; }
 }

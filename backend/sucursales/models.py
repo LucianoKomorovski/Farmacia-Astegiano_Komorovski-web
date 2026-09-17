@@ -12,6 +12,11 @@ class Sucursal(models.Model):
 
   horarios_atencion = models.TextField(blank=True, null=True)
 
+  class Meta:
+    # Nombres que se muestran en el panel (evita el plural automático "Sucursals").
+    verbose_name = 'sucursal'
+    verbose_name_plural = 'sucursales'
+
   def __str__(self) -> str:  # cómo mostrar el objeto en el admin
     return str(self.nombre)
 

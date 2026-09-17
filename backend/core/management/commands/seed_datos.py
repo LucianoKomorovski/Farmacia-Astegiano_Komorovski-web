@@ -20,7 +20,7 @@ from django.utils import timezone
 
 from aboutUs.models import SobreNosotros
 from catalogo.models import Categoria, Producto
-from core.models import Banner
+from core.models import Banner, PromocionBancaria
 from inventario.models import StockWeb
 from pedidos.models import FranjaEnvio
 from servicios.models import Servicio
@@ -40,8 +40,17 @@ class Command(BaseCommand):
         self._seed_turnos()
         self._seed_sobre_nosotros()
         self._seed_tienda()
+        self._seed_roles()
         self._seed_staff()
         self.stdout.write(self.style.SUCCESS('Datos iniciales listos.'))
+
+    def _seed_roles(self) -> None:
+        """Grupo "Empleadas" con los permisos operativos del panel."""
+        from cuentas.services import asegurar_grupo_empleadas, asegurar_perfiles_super_cuentas
+
+        grupo = asegurar_grupo_empleadas()
+        asegurar_perfiles_super_cuentas()
+        self.stdout.write(f'  Grupo listo: {grupo.name} ({grupo.permissions.count()} permisos)')
 
     def _seed_sucursales(self) -> None:
         datos = [
@@ -204,6 +213,14 @@ class Command(BaseCommand):
             slug='bebes',
             defaults={'nombre': 'Bebés', 'activa': True, 'orden': 5, 'icono': 'bi bi-balloon-heart'},
         )
+        cat_perf, _ = Categoria.objects.update_or_create(
+            slug='perfumes',
+            defaults={'nombre': 'Perfumes', 'activa': True, 'orden': 6, 'icono': 'bi bi-flower2'},
+        )
+        cat_reg, _ = Categoria.objects.update_or_create(
+            slug='regaleria',
+            defaults={'nombre': 'Regalería', 'activa': True, 'orden': 7, 'icono': 'bi bi-gift'},
+        )
 
         productos = [
             {
@@ -266,6 +283,57 @@ class Command(BaseCommand):
                 'codigo_barras': '7790001001005',
                 'stock': 12,
             },
+            {
+                'sku': 'PERF-001',
+                'nombre': 'Eau de toilette nacional 100 ml',
+                'slug': 'eau-de-toilette-nacional-100',
+                'categoria': cat_perf,
+                'tipo': Producto.Tipo.INMEDIATO,
+                'origen_perfume': Producto.OrigenPerfume.NACIONAL,
+                'precio': Decimal('12900.00'),
+                'precio_anterior': None,
+                'destacado': False,
+                'codigo_barras': '7790001002001',
+                'stock': 8,
+            },
+            {
+                'sku': 'PERF-002',
+                'nombre': 'Perfume importado 50 ml',
+                'slug': 'perfume-importado-50',
+                'categoria': cat_perf,
+                'tipo': Producto.Tipo.INMEDIATO,
+                'origen_perfume': Producto.OrigenPerfume.IMPORTADO,
+                'precio': Decimal('45900.00'),
+                'precio_anterior': Decimal('52000.00'),
+                'destacado': True,
+                'codigo_barras': '7790001002002',
+                'stock': 4,
+            },
+            {
+                'sku': 'PERF-003',
+                'nombre': 'Perfume árabe 100 ml',
+                'slug': 'perfume-arabe-100',
+                'categoria': cat_perf,
+                'tipo': Producto.Tipo.INMEDIATO,
+                'origen_perfume': Producto.OrigenPerfume.ARABE,
+                'precio': Decimal('18900.00'),
+                'precio_anterior': None,
+                'destacado': True,
+                'codigo_barras': '7790001002003',
+                'stock': 6,
+            },
+            {
+                'sku': 'REG-001',
+                'nombre': 'Set de regalo cuidado personal',
+                'slug': 'set-regalo-cuidado-personal',
+                'categoria': cat_reg,
+                'tipo': Producto.Tipo.INMEDIATO,
+                'precio': Decimal('9800.00'),
+                'precio_anterior': None,
+                'destacado': True,
+                'codigo_barras': '7790001003001',
+                'stock': 10,
+            },
         ]
 
         for item in productos:
@@ -318,6 +386,89 @@ class Command(BaseCommand):
             )
             estado = 'creado' if created else 'actualizado'
             self.stdout.write(f'  Banner {estado}: {obj.titulo}')
+
+        # Promos bancarias de ejemplo: cubren toda la semana para que el home
+        # siempre tenga algo, sin logos (el template usa el ícono genérico).
+        hoy = timezone.localdate()
+        dias_en_cero = {
+            'lunes': False,
+            'martes': False,
+            'miercoles': False,
+            'jueves': False,
+            'viernes': False,
+            'sabado': False,
+            'domingo': False,
+        }
+        promos_bancarias = [
+            {
+                'banco': 'Banco Nación',
+                'beneficio': '20% de descuento con Débito Nación',
+                'condiciones': 'Tope de reintegro $8.000. No acumulable con otras promociones.',
+                'lunes': True,
+                'orden': 1,
+            },
+            {
+                'banco': 'Banco Galicia',
+                'beneficio': '3 y 6 cuotas sin interés',
+                'condiciones': 'Con Visa y Mastercard Galicia. Tope financiado $150.000.',
+                'martes': True,
+                'miercoles': True,
+                'orden': 2,
+            },
+            {
+                'banco': 'Santander',
+                'beneficio': '15% de descuento con Visa y Mastercard',
+                'condiciones': 'Tope de reintegro $6.000. Válido en un pago.',
+                'jueves': True,
+                'orden': 3,
+            },
+            {
+                'banco': 'Banco Macro',
+                'beneficio': '25% de reintegro en farmacia',
+                'condiciones': 'Con tarjetas Macro. Tope $5.000 por ticket.',
+                'viernes': True,
+                'orden': 4,
+            },
+            {
+                'banco': 'Tarjeta Naranja',
+                'beneficio': '6 cuotas sin interés los fines de semana',
+                'condiciones': 'Mínimo de compra $20.000. No incluye medicamentos con receta.',
+                'sabado': True,
+                'domingo': True,
+                'orden': 5,
+            },
+            {
+                'banco': 'Banco Provincia',
+                'beneficio': '10% extra en débito los días impares',
+                'condiciones': 'Lunes, miércoles y viernes. Tope $4.000.',
+                'lunes': True,
+                'miercoles': True,
+                'viernes': True,
+                'orden': 6,
+            },
+            {
+                'banco': 'BBVA',
+                'beneficio': '10% de descuento con débito y crédito',
+                'condiciones': 'Tope de reintegro $3.000. No acumulable con cuotas.',
+                'martes': True,
+                'orden': 7,
+            },
+        ]
+        for promo in promos_bancarias:
+            lookup = promo['banco']
+            defaults = {
+                **dias_en_cero,
+                **promo,
+                'activo': True,
+                'vigente_desde': hoy - timedelta(days=7),
+                'vigente_hasta': hoy + timedelta(days=90),
+            }
+            obj, created = PromocionBancaria.objects.update_or_create(
+                banco=lookup,
+                defaults=defaults,
+            )
+            estado = 'creada' if created else 'actualizada'
+            self.stdout.write(f'  Promo bancaria {estado}: {obj.banco}')
 
     def _seed_staff(self) -> None:
         """Usuario staff para probar transferencias y encargues en admin."""

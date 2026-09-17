@@ -1,0 +1,165 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static panel_extras %}
+{% comment %}
+Portada del PANEL (pisa admin/index.html). Recibe, además del contexto normal
+del admin (app_list), lo que agrega panel.views.contexto_dashboard():
+alertas, kpi_hoy / kpi_7 / kpi_30, ultimos_pedidos y datos_iniciales.
+{% endcomment %}
+{% block extrastyle %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'admin/css/dashboard.css' %}">
+{% endblock %}
+{% block coltype %}colM{% endblock %}
+{% block bodyclass %}{{ block.super }} dashboard{% endblock %}
+{% block nav-breadcrumbs %}{% endblock %}
+{% block nav-sidebar %}{% endblock %}
+{% block content_title %}
+    <h1>Hola, {% firstof user.first_name user.get_username %}</h1>
+{% endblock %}
+{% block content_subtitle %}
+    <p class="panel-seccion__cabecera" style="margin-top:-0.5rem">
+        <span style="color:var(--ink-soft)">Resumen del día · {% now "l j \d\e F" %}</span>
+    </p>
+{% endblock %}
+{% block content %}
+    <div id="content-main">
+        {# ---------- 1. Requiere atención ---------- #}
+        {% if alertas %}
+            <section class="panel-seccion" aria-labelledby="titulo-atencion">
+                <div class="panel-seccion__cabecera">
+                    <h2 id="titulo-atencion">Requiere atención</h2>
+                    <p>Tocá una tarjeta para ir directo a los pedidos filtrados.</p>
+                </div>
+                <div class="panel-grid">
+                    {% for alerta in alertas %}
+                        <a class="panel-card panel-alerta{% if alerta.cantidad %} panel-alerta--urgente{% else %} panel-alerta--vacia{% endif %}"
+                           href="{{ alerta.url }}"
+                           aria-label="{{ alerta.titulo }}: {{ alerta.cantidad }}">
+                            <span class="panel-alerta__icono" aria-hidden="true"><i class="bi {{ alerta.icono }}"></i></span>
+                            <span class="panel-alerta__cuerpo">
+                                <span class="panel-alerta__numero">{{ alerta.cantidad }}</span>
+                                <span class="panel-alerta__titulo">{{ alerta.titulo }}</span>
+                                <span class="panel-alerta__ayuda">{{ alerta.ayuda }}</span>
+                            </span>
+                        </a>
+                    {% endfor %}
+                </div>
+            </section>
+        {% endif %}
+        {% if puede_ver_ventas %}
+            {# ---------- 2. KPIs ---------- #}
+            <section class="panel-seccion" aria-labelledby="titulo-kpis">
+                <div class="panel-seccion__cabecera">
+                    <h2 id="titulo-kpis">Ventas</h2>
+                    <a class="panel-link" href="{{ url_analitica }}">Ver analítica completa <i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+                </div>
+                <div class="panel-grid panel-grid--kpi">
+                    <div class="panel-card panel-kpi">
+                        <p class="panel-kpi__etiqueta">Hoy</p>
+                        <p class="panel-kpi__valor">{{ kpi_hoy.monto|moneda }}</p>
+                        <p class="panel-kpi__detalle">{{ kpi_hoy.pedidos }} pedido{{ kpi_hoy.pedidos|pluralize }} · {{ kpi_hoy.unidades }} unidad{{ kpi_hoy.unidades|pluralize:"es" }}
+                            {{ kpi_hoy.variacion_pct|variacion }}
+                        </p>
+                    </div>
+                    <div class="panel-card panel-kpi">
+                        <p class="panel-kpi__etiqueta">Últimos 7 días</p>
+                        <p class="panel-kpi__valor">{{ kpi_7.monto|moneda }}</p>
+                        <p class="panel-kpi__detalle">{{ kpi_7.pedidos }} pedido{{ kpi_7.pedidos|pluralize }} · ticket {{ kpi_7.ticket_promedio|moneda }}
+                            {{ kpi_7.variacion_pct|variacion }}
+                        </p>
+                    </div>
+                    <div class="panel-card panel-kpi">
+                        <p class="panel-kpi__etiqueta">Últimos 30 días</p>
+                        <p class="panel-kpi__valor">{{ kpi_30.monto|moneda }}</p>
+                        <p class="panel-kpi__detalle">{{ kpi_30.pedidos }} pedido{{ kpi_30.pedidos|pluralize }} · ticket {{ kpi_30.ticket_promedio|moneda }}
+                            {{ kpi_30.variacion_pct|variacion }}
+                        </p>
+                    </div>
+                </div>
+            </section>
+            {# ---------- 3. Gráficos ---------- #}
+            <section class="panel-seccion" aria-labelledby="titulo-graficos">
+                <div class="panel-seccion__cabecera">
+                    <h2 id="titulo-graficos">Gráficos de ventas</h2>
+                    <div class="panel-controles">
+                        <label for="selector-rango">
+                            Período
+                            <select id="selector-rango">
+                                {% for dias in rangos_rapidos %}
+                                    <option value="{{ dias }}" {% if dias == rango_por_defecto %}selected{% endif %}>Últimos {{ dias }} días</option>
+                                {% endfor %}
+                            </select>
+                        </label>
+                    </div>
+                </div>
+                <p id="estado-graficos" class="visually-hidden" role="status" aria-live="polite"></p>
+                <div class="panel-grid panel-grid--graficos">
+                    {% include 'admin/panel/includes/grafico.html' with id='dias' titulo='Ventas por día' aria='Gráfico de barras con el monto vendido por día' cabeceras='Día|Pedidos#|Monto#' %}
+                    {% include 'admin/panel/includes/grafico.html' with id='productos' titulo='Top 10 productos' aria='Gráfico de barras horizontales con los productos más vendidos por monto' cabeceras='Producto|Categoría|Unidades#|Monto#|% del total#' %}
+                    {% include 'admin/panel/includes/grafico.html' with id='categorias' titulo='Ventas por categoría' aria='Gráfico de dona con la participación de cada categoría en las ventas' cabeceras='Categoría|Unidades#|Monto#|% del total#' %}
+                    {% include 'admin/panel/includes/grafico.html' with id='medios' titulo='Medios de pago' aria='Gráfico de barras con el monto vendido por medio de pago' cabeceras='Medio|Pedidos#|Monto#|% del total#' %}
+                </div>
+            </section>
+            {# ---------- 4. Últimos pedidos ---------- #}
+            <section class="panel-seccion" aria-labelledby="titulo-ultimos">
+                <div class="panel-seccion__cabecera">
+                    <h2 id="titulo-ultimos">Últimos pedidos</h2>
+                    <a class="panel-link" href="{% url 'admin:pedidos_pedido_changelist' %}">Ver todos los pedidos <i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+                </div>
+                <div class="panel-card panel-tabla-wrap" style="padding:0">
+                    {% if ultimos_pedidos %}
+                        <table class="panel-tabla">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Pedido</th>
+                                    <th scope="col">Cliente</th>
+                                    <th scope="col">Estado</th>
+                                    <th scope="col">Entrega</th>
+                                    <th scope="col">Pago</th>
+                                    <th scope="col" class="num">Total</th>
+                                    <th scope="col">Fecha</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for pedido in ultimos_pedidos %}
+                                    <tr>
+                                        <td><a href="{% url 'admin:pedidos_pedido_change' pedido.pk %}"><strong>{{ pedido.numero }}</strong></a></td>
+                                        <td>{{ pedido.nombre_cliente }}</td>
+                                        <td><span class="{{ pedido.estado|clase_estado }}">{{ pedido.get_estado_display }}</span></td>
+                                        <td>{{ pedido.get_modalidad_entrega_display }}{% if pedido.sucursal_retiro %} · {{ pedido.sucursal_retiro.nombre }}{% endif %}</td>
+                                        <td>{{ pedido.get_medio_pago_display|default:"—" }}</td>
+                                        <td class="num">{{ pedido.total|moneda }}</td>
+                                        <td>{{ pedido.created_at|date:"d/m H:i" }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    {% else %}
+                        <p class="panel-vacio">Todavía no hay pedidos.</p>
+                    {% endif %}
+                </div>
+            </section>
+        {% endif %}
+        {# ---------- 5. Gestión: todos los modelos (cubre lo ya existente) ---------- #}
+        <section class="panel-seccion" aria-labelledby="titulo-gestion">
+            <div class="panel-seccion__cabecera">
+                <h2 id="titulo-gestion">Gestión</h2>
+                <p>Catálogo, stock, promociones, turnos y todo lo demás.</p>
+            </div>
+            <div class="app-list">
+                {% include "admin/app_list.html" with app_list=app_list show_changelinks=True %}
+            </div>
+        </section>
+    </div>
+{% endblock %}
+{% block sidebar %}{% endblock %}
+{% block extrabody %}
+    {% if puede_ver_ventas %}
+        {{ datos_iniciales|json_script:"datos-analitica" }}
+        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+        <script src="{% static 'panel/js/graficos.js' %}"></script>
+        <script>
+            PanelGraficos.init({ api: '{{ url_api_analitica|escapejs }}' });
+        </script>
+    {% endif %}
+{% endblock %}

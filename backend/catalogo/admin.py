@@ -20,13 +20,21 @@ class ProductoAdmin(admin.ModelAdmin):
         'sku',
         'categoria',
         'tipo',
+        'origen_perfume',
         'precio',
         'precio_anterior',
         'destacado',
         'activo',
         'requiere_receta',
     )
-    list_filter = ('tipo', 'activo', 'destacado', 'requiere_receta', 'categoria')
+    list_filter = (
+        'tipo',
+        'origen_perfume',
+        'activo',
+        'destacado',
+        'requiere_receta',
+        'categoria',
+    )
     list_editable = ('activo', 'destacado', 'precio_anterior')
     search_fields = ('nombre', 'sku', 'codigo_barras', 'codigo_praxys')
     prepopulated_fields = {'slug': ('nombre',)}
@@ -39,6 +47,7 @@ class ProductoAdmin(admin.ModelAdmin):
                 'nombre',
                 'slug',
                 'categoria',
+                'origen_perfume',
                 'descripcion',
                 'imagen',
             ),

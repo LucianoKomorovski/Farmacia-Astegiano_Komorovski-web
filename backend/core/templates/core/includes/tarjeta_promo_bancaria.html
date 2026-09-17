@@ -1,0 +1,19 @@
+{# Card reutilizable: home (hoy) y página de la semana. #}
+<article class="card-promo-banco h-100">
+    <div class="card-promo-banco__logo">
+        {% if promo.logo %}
+            <img src="{{ promo.logo.url }}" alt="{{ promo.banco }}">
+        {% else %}
+            <i class="bi bi-credit-card-2-front" aria-hidden="true"></i>
+        {% endif %}
+    </div>
+    <div class="card-promo-banco__cuerpo">
+        <h3>{{ promo.banco }}</h3>
+        <p class="card-promo-banco__beneficio">{{ promo.beneficio }}</p>
+        <p class="meta"><i class="bi bi-calendar3 me-1"></i>{{ promo.etiquetas_dias }}</p>
+        <p class="meta"><i class="bi bi-clock me-1"></i>{{ promo.texto_vigencia }}</p>
+        {% if promo.condiciones %}
+            <p class="card-promo-banco__condiciones">{{ promo.condiciones }}</p>
+        {% endif %}
+    </div>
+</article>

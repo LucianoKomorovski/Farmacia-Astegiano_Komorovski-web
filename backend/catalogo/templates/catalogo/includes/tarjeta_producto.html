@@ -13,7 +13,9 @@
     </a>
     <div class="cuerpo">
         {% if producto.categoria %}
-            <div class="categoria">{{ producto.categoria.nombre }}</div>
+            <div class="categoria">
+                {{ producto.categoria.nombre }}{% if producto.origen_perfume %} · {{ producto.get_origen_perfume_display }}{% endif %}
+            </div>
         {% endif %}
         <h3 class="nombre">
             <a href="{% url 'catalogo_detalle' producto.slug %}">{{ producto.nombre }}</a>

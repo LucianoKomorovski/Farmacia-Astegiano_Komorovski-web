@@ -2,13 +2,15 @@ from typing import Any
 
 from django.contrib import messages
 from django.contrib.auth import login
+from django.db import transaction
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect
 from django.urls import reverse_lazy
 from django.utils.http import url_has_allowed_host_and_scheme
-from django.views.generic import CreateView
+from django.views.generic import CreateView, TemplateView
 
-from .forms import RegistroForm
+from .forms import RegistroForm, SolicitudStaffForm
+from .services import notificar_nueva_solicitud
 
 
 class RegistroView(CreateView):
@@ -42,3 +44,34 @@ class RegistroView(CreateView):
         ):
             return siguiente
         return str(self.success_url)
+
+
+class SolicitudStaffView(CreateView):
+    """Registro de PERSONAL: crea la cuenta pero NO inicia sesión.
+
+    La cuenta queda pendiente hasta que una super cuenta la apruebe desde el
+    panel (Cuentas → Cuentas de personal). Mientras tanto, si intenta entrar
+    al panel ve un mensaje explicando que está pendiente.
+    """
+
+    form_class = SolicitudStaffForm
+    template_name = 'cuentas/solicitud_staff.html'
+    success_url = reverse_lazy('solicitud_enviada')
+
+    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        if request.user.is_authenticated and request.user.is_staff:
+            # Ya tiene acceso al panel: lo mandamos directo.
+            return redirect('admin:index')
+        return super().dispatch(request, *args, **kwargs)
+
+    def form_valid(self, form: SolicitudStaffForm) -> HttpResponse:
+        # atomic: si falla la creación del perfil, tampoco queda el User a medias.
+        with transaction.atomic():
+            respuesta = super().form_valid(form)
+            perfil = form.crear_perfil(self.object)
+        notificar_nueva_solicitud(perfil)
+        return respuesta
+
+
+class SolicitudEnviadaView(TemplateView):
+    template_name = 'cuentas/solicitud_enviada.html'

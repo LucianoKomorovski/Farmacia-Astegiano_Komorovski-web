@@ -27,10 +27,14 @@
                     <p class="text-center small mb-2">
                         <a href="{% url 'password_reset' %}" class="link-primary">¿Olvidaste tu contraseña?</a>
                     </p>
-                    <p class="text-center small mb-0">
+                    <p class="text-center small mb-3">
                         ¿No tenés cuenta?
                         <a href="{% url 'registro' %}{% if next %}?next={{ next|urlencode }}{% endif %}"
                            class="link-primary fw-semibold">Registrate</a>
+                    </p>
+                    <p class="text-center small text-muted mb-0">
+                        ¿Sos personal de la farmacia?
+                        <a href="{% url 'solicitud_staff' %}" class="link-primary">Solicitá acceso al panel</a>
                     </p>
                 </div>
             </div>

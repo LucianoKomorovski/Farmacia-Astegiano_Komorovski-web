@@ -1,0 +1,40 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Promos bancarias — Farmacias Astegiano y Komorovski{% endblock %}
+{% block meta_description %}Promociones bancarias vigentes en Farmacias Astegiano y Komorovski de Las Parejas, agrupadas por día de la semana.{% endblock %}
+
+{% block content %}
+    <div class="text-center mb-4 mb-lg-5">
+        <h1 class="h2 fw-bold mb-2">Promociones bancarias</h1>
+        <p class="text-ink-soft mb-0">
+            Descuentos y cuotas según el día. Hoy es <strong>{{ nombre_dia_hoy }}</strong>.
+        </p>
+    </div>
+
+    {% for grupo in grupos_dias %}
+        <section class="bloque-dia-promo {% if grupo.es_hoy %}es-hoy{% endif %} {% if not forloop.first %}mt-4{% endif %}"
+                 aria-labelledby="dia-{{ grupo.indice }}">
+            <div class="bloque-dia-promo__cabecera">
+                <h2 id="dia-{{ grupo.indice }}">{{ grupo.nombre }}</h2>
+                {% if grupo.es_hoy %}
+                    <span class="badge rounded-pill">Hoy</span>
+                {% endif %}
+            </div>
+            <div class="row g-3 row-cols-1 row-cols-md-2 row-cols-xl-3">
+                {% for promo in grupo.promociones %}
+                    <div class="col">
+                        {% include 'core/includes/tarjeta_promo_bancaria.html' with promo=promo %}
+                    </div>
+                {% endfor %}
+            </div>
+        </section>
+    {% empty %}
+        <p class="text-center text-ink-soft">No hay promociones bancarias vigentes en este momento.</p>
+    {% endfor %}
+
+    <div class="text-center seccion">
+        <a href="{% url 'inicio' %}" class="btn btn-outline-primary">
+            <i class="bi bi-arrow-left me-2"></i> Volver al inicio
+        </a>
+    </div>
+{% endblock content %}

@@ -1,0 +1,61 @@
+{% extends 'core/base.html' %}
+{% block title %}Solicitar acceso al panel — Farmacias Astegiano y Komorovski{% endblock %}
+{% block meta_description %}Registro para el personal de las farmacias. La cuenta queda pendiente hasta que un dueño la apruebe.{% endblock %}
+{% block content %}
+    <div class="row justify-content-center">
+        <div class="col-12 col-md-9 col-lg-7">
+            <div class="card border-0 shadow-sm rounded-4">
+                <div class="card-body p-4 p-md-5">
+                    <p class="text-uppercase small fw-semibold text-brand mb-1">Personal de la farmacia</p>
+                    <h1 class="h4 fw-bold mb-2">Solicitar acceso al panel</h1>
+                    <p class="text-muted small mb-4">
+                        Completá tus datos. Un dueño va a revisar la solicitud y, cuando la apruebe,
+                        te avisamos por email para que puedas ingresar al panel.
+                    </p>
+                    {% if form.non_field_errors %}
+                        <div class="alert alert-danger small" role="alert">
+                            {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+                        </div>
+                    {% endif %}
+                    <form method="post" novalidate>
+                        {% csrf_token %}
+                        <div class="row">
+                            <div class="col-sm-6">
+                                {% include 'includes/campo_form.html' with campo=form.first_name %}
+                            </div>
+                            <div class="col-sm-6">
+                                {% include 'includes/campo_form.html' with campo=form.last_name %}
+                            </div>
+                        </div>
+                        {% include 'includes/campo_form.html' with campo=form.username %}
+                        {% include 'includes/campo_form.html' with campo=form.email %}
+                        <div class="row">
+                            <div class="col-sm-6">
+                                {% include 'includes/campo_form.html' with campo=form.telefono %}
+                            </div>
+                            <div class="col-sm-6">
+                                {% include 'includes/campo_form.html' with campo=form.sucursal %}
+                            </div>
+                        </div>
+                        {% include 'includes/campo_form.html' with campo=form.mensaje %}
+                        <hr class="my-4">
+                        {% include 'includes/campo_form.html' with campo=form.password1 %}
+                        {% include 'includes/campo_form.html' with campo=form.password2 %}
+                        <div class="d-grid mt-4">
+                            <button type="submit" class="btn btn-primary">Enviar solicitud</button>
+                        </div>
+                    </form>
+                    <hr class="my-4">
+                    <p class="text-center small mb-2">
+                        ¿Ya te aprobaron?
+                        <a href="{% url 'admin:login' %}" class="link-primary fw-semibold">Ingresá al panel</a>
+                    </p>
+                    <p class="text-center small mb-0">
+                        ¿Sos cliente?
+                        <a href="{% url 'registro' %}" class="link-primary">Creá tu cuenta de cliente</a>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock content %}

@@ -1,0 +1,977 @@
+/* =========================================================================
+   Panel de administración — Farmacias Astegiano & Komorovski
+   -------------------------------------------------------------------------
+   Estrategia: el admin de Django ya trae toda la estructura y usa variables
+   CSS para sus colores. Acá (1) pisamos esas variables con los tokens de la
+   marca (mismos que static/css/site.css), (2) ajustamos tipografía y foco
+   para accesibilidad y (3) definimos los componentes propios del dashboard.
+   Regla de diseño: colores PLANOS, sin degradados ni sombras pesadas.
+   ========================================================================= */
+
+/* ---------- 1. Tokens de marca → variables del admin ---------- */
+:root,
+html[data-theme="light"],
+html[data-theme="dark"] {
+    color-scheme: light;
+
+    /* Marca (idénticos a site.css) */
+    --brand: #0E8A6D;
+    --brand-dark: #0B6B55;
+    --brand-soft: #E3F3EE;
+    --accent: #F0A04B;
+    --accent-dark: #C2761F;   /* más oscuro que en la tienda: texto AA sobre claro */
+    --accent-soft: #FDF1E3;
+    --ink: #1F2933;
+    --ink-soft: #52606D;
+    --surface: #FFFFFF;
+    --page-bg: #F5F8F7;
+    --line: #E1E8E5;
+    --peligro: #B42318;
+    --peligro-soft: #FBE4E4;
+    --info: #1F4B99;
+    --info-soft: #E3ECFB;
+    --radius: 0.75rem;
+    --radius-sm: 0.5rem;
+
+    /* Variables que lee el CSS del admin de Django */
+    --primary: var(--brand);
+    --secondary: var(--brand-dark);
+    --accent: #F0A04B;
+    --primary-fg: #FFFFFF;
+
+    --body-fg: var(--ink);
+    --body-bg: var(--surface);
+    --body-quiet-color: var(--ink-soft);
+    --body-medium-color: #3E4C59;
+    --body-loud-color: #111827;
+
+    --header-color: var(--ink-soft);
+    --header-branding-color: var(--brand);
+    --header-bg: var(--surface);
+    --header-link-color: var(--ink);
+
+    --breadcrumbs-fg: var(--ink-soft);
+    --breadcrumbs-link-fg: var(--brand-dark);
+    --breadcrumbs-bg: var(--page-bg);
+
+    --link-fg: var(--brand-dark);
+    --link-hover-color: #08513F;
+    --link-selected-fg: var(--brand);
+
+    --hairline-color: var(--line);
+    --border-color: #CBD5D1;
+
+    --error-fg: var(--peligro);
+
+    --message-success-bg: var(--brand-soft);
+    --message-warning-bg: var(--accent-soft);
+    --message-error-bg: var(--peligro-soft);
+    --message-info-bg: var(--info-soft);
+
+    --darkened-bg: var(--page-bg);
+    --selected-bg: #EAF1EE;
+    --selected-row: var(--brand-soft);
+
+    --button-fg: #FFFFFF;
+    --button-bg: var(--brand);
+    --button-hover-bg: var(--brand-dark);
+    --default-button-bg: var(--brand-dark);
+    --default-button-hover-bg: #08513F;
+    --close-button-bg: var(--ink-soft);
+    --close-button-hover-bg: var(--ink);
+    --delete-button-bg: var(--peligro);
+    --delete-button-hover-bg: #8E1B12;
+
+    --object-tools-fg: #FFFFFF;
+    --object-tools-bg: var(--ink-soft);
+    --object-tools-hover-bg: var(--ink);
+
+    --font-family-primary: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --font-family-monospace: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* ---------- 2. Tipografía y accesibilidad ---------- */
+html {
+    font-size: 100%; /* 16px base: legible en el mostrador */
+}
+
+body {
+    font-size: 1rem;
+    line-height: 1.5;
+    background: var(--page-bg);
+    -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4 {
+    letter-spacing: -0.01em;
+}
+
+#content h1 {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--ink);
+    margin-bottom: 1rem;
+}
+
+/* Foco visible y consistente en TODO elemento interactivo (teclado). */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: 2px;
+    box-shadow: none;
+}
+
+/* Botones: altura cómoda para tocar (≥ 44px en primarios) y sin degradados. */
+.button,
+input[type="submit"],
+input[type="button"],
+.submit-row input,
+a.button,
+.object-tools a {
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+    font-size: 0.9375rem;
+    padding: 0.6rem 1rem;
+    line-height: 1.25;
+    background-image: none;
+}
+
+.submit-row input,
+.submit-row a.deletelink {
+    min-height: 44px;
+}
+
+.submit-row {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+}
+
+/* Header: blanco, plano, con línea inferior. */
+#header {
+    background: var(--header-bg);
+    border-bottom: 1px solid var(--line);
+    padding: 0.75rem 2rem;
+    align-items: center;
+}
+
+#branding h1,
+#site-name {
+    margin: 0;
+}
+
+.panel-marca {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.75rem;
+    text-decoration: none;
+}
+
+.panel-marca__logo {
+    height: 40px;
+    width: auto;
+    display: block;
+}
+
+.panel-marca__texto {
+    font-weight: 800;
+    color: var(--brand-dark);
+    font-size: 1.05rem;
+    padding-left: 0.75rem;
+    border-left: 2px solid var(--line);
+    line-height: 1;
+}
+
+#user-tools {
+    font-size: 0.9375rem;
+    text-transform: none;
+    letter-spacing: normal;
+    color: var(--ink-soft);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+#user-tools a,
+#user-tools button,
+#logout-form button {
+    color: var(--brand-dark);
+    border-bottom: none;
+    font-weight: 600;
+    padding: 0.4rem 0.5rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.9375rem;
+    text-transform: none;
+    letter-spacing: normal;
+    margin: 0;
+}
+
+#user-tools a:hover,
+#user-tools button:hover,
+#logout-form button:hover {
+    background: var(--brand-soft);
+    color: var(--brand-dark);
+    text-decoration: none;
+}
+
+/* Migas de pan sobre fondo de página, no barra oscura. */
+.breadcrumbs {
+    background: var(--page-bg);
+    color: var(--ink-soft);
+    border-bottom: 1px solid var(--line);
+    padding: 0.75rem 2rem;
+    font-size: 0.9375rem;
+}
+
+/* Menú lateral */
+#nav-sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--line);
+}
+
+#nav-sidebar .module th,
+#nav-sidebar .module caption {
+    font-size: 0.9375rem;
+}
+
+#nav-sidebar .module caption {
+    background: var(--brand-soft);
+    color: var(--brand-dark);
+    font-weight: 700;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+#nav-sidebar .module caption a.section:link,
+#nav-sidebar .module caption a.section:visited {
+    color: var(--brand-dark);
+}
+
+#nav-sidebar .current-model {
+    background: var(--brand-soft);
+}
+
+#nav-sidebar .current-model a {
+    color: var(--brand-dark);
+    font-weight: 700;
+}
+
+#nav-filter {
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-color);
+    padding: 0.5rem 0.75rem;
+}
+
+/* Módulos (cajas) */
+.module {
+    border-radius: var(--radius);
+    border: 1px solid var(--line);
+    background: var(--surface);
+    overflow: hidden;
+}
+
+.module h2,
+.module caption,
+.inline-group h2 {
+    background: var(--brand);
+    color: #FFFFFF;
+    font-weight: 700;
+    font-size: 0.95rem;
+    text-transform: none;
+    letter-spacing: normal;
+    padding: 0.6rem 1rem;
+}
+
+.module caption a.section:link,
+.module caption a.section:visited {
+    color: #FFFFFF;
+}
+
+/* Tablas: cabecera fija al scrollear y filas cómodas. */
+#changelist table thead th {
+    background: var(--page-bg);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    font-size: 0.875rem;
+}
+
+#changelist table tbody td,
+#changelist table tbody th {
+    padding: 0.7rem 0.75rem;
+    vertical-align: middle;
+    font-size: 0.9375rem;
+}
+
+/* La primera columna (número de pedido, nombre) no se parte en varias líneas. */
+#changelist table tbody th a {
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+#changelist-form .results {
+    border-radius: var(--radius);
+    border: 1px solid var(--line);
+    background: var(--surface);
+}
+
+#changelist .actions {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.75rem;
+}
+
+#changelist .actions select,
+#changelist-search input[type="text"] {
+    min-height: 40px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-color);
+    font-size: 0.9375rem;
+}
+
+#changelist-filter {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+}
+
+#changelist-filter h2 {
+    background: var(--brand-soft);
+    color: var(--brand-dark);
+}
+
+#changelist-filter li.selected a {
+    color: var(--brand-dark);
+    font-weight: 700;
+}
+
+.paginator {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    font-size: 0.9375rem;
+}
+
+.paginator a:link,
+.paginator a:visited {
+    border-radius: var(--radius-sm);
+}
+
+/* Formularios */
+.form-row {
+    padding: 0.75rem 1rem;
+}
+
+form .aligned label {
+    font-weight: 600;
+    color: var(--ink);
+}
+
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="url"],
+input[type="number"],
+input[type="tel"],
+input[type="date"],
+input[type="time"],
+textarea,
+select,
+.vTextField {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 0.5rem 0.65rem;
+    font-size: 0.9375rem;
+    min-height: 40px;
+}
+
+textarea {
+    min-height: 6rem;
+}
+
+.help,
+.help-tooltip,
+p.help,
+form p.help,
+form div.help {
+    color: var(--ink-soft);
+    font-size: 0.875rem;
+}
+
+.errornote,
+.errorlist li {
+    border-radius: var(--radius-sm);
+    background: var(--peligro-soft);
+    color: var(--peligro);
+    font-weight: 600;
+}
+
+ul.messagelist li {
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--line);
+    font-size: 0.9375rem;
+}
+
+/* Etiquetas de estado (pedidos, cuentas). Colores sólidos, texto con contraste AA. */
+.badge-estado {
+    display: inline-block;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    line-height: 1.4;
+    white-space: nowrap;
+    background: #E4E7EB;
+    color: var(--ink);
+}
+
+.badge-estado--pendiente { background: var(--accent-soft); color: #7A3E00; }
+.badge-estado--info      { background: var(--info-soft);   color: var(--info); }
+.badge-estado--ok        { background: var(--brand-soft);  color: var(--brand-dark); }
+.badge-estado--listo     { background: #DCEFE2;            color: #146C2E; }
+.badge-estado--entregado { background: var(--brand);       color: #FFFFFF; }
+.badge-estado--cancelado { background: var(--peligro-soft); color: var(--peligro); }
+
+/* ---------- 3. Dashboard (portada) ---------- */
+/* Django fija 600px de ancho a la portada; el dashboard usa todo el ancho. */
+.dashboard #content {
+    width: auto;
+    max-width: none;
+}
+
+.dashboard #content-main {
+    float: none;
+    width: 100%;
+}
+
+.panel-seccion {
+    margin-bottom: 2rem;
+}
+
+.panel-seccion__cabecera {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+}
+
+.panel-seccion__cabecera h2 {
+    font-size: 1.125rem;
+    font-weight: 800;
+    color: var(--ink);
+    margin: 0;
+}
+
+.panel-seccion__cabecera p {
+    margin: 0;
+    color: var(--ink-soft);
+    font-size: 0.9375rem;
+}
+
+.panel-link {
+    color: var(--brand-dark);
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.panel-link:hover {
+    text-decoration: underline;
+}
+
+/* Grilla de tarjetas */
+.panel-grid {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+.panel-grid--kpi {
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+
+.panel-grid--graficos {
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.panel-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+}
+
+/* Tarjetas "Requiere atención" */
+.panel-alerta {
+    display: flex;
+    gap: 0.9rem;
+    align-items: flex-start;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.15s ease;
+}
+
+/* Django subraya todo <a> del contenido con un selector muy específico;
+   estas tarjetas/enlaces del dashboard no van subrayados. */
+#content-main a.panel-alerta,
+#content-main a.panel-alerta:link,
+#content-main a.panel-alerta:visited,
+#content-main a.panel-alerta:hover,
+#content-main a.panel-alerta:focus-visible,
+#content-main a.panel-link,
+#content-main div.app-list a,
+#content-main .panel-tabla a {
+    text-decoration: none;
+}
+
+#content-main a.panel-alerta,
+#content-main a.panel-alerta:link,
+#content-main a.panel-alerta:visited {
+    color: inherit;
+}
+
+#content-main a.panel-link:hover,
+#content-main .panel-tabla a:hover,
+#content-main div.app-list a:hover {
+    text-decoration: underline;
+}
+
+.panel-alerta:hover,
+.panel-alerta:focus-visible {
+    border-color: var(--brand);
+}
+
+.panel-alerta__cuerpo {
+    display: block;
+    min-width: 0;
+}
+
+.panel-alerta__icono {
+    flex: 0 0 auto;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-sm);
+    display: grid;
+    place-items: center;
+    font-size: 1.35rem;
+    background: var(--brand-soft);
+    color: var(--brand-dark);
+}
+
+.panel-alerta--urgente .panel-alerta__icono {
+    background: var(--accent-soft);
+    color: #7A3E00;
+}
+
+.panel-alerta--vacia {
+    opacity: 0.8;
+}
+
+.panel-alerta__numero {
+    font-size: 1.75rem;
+    font-weight: 800;
+    line-height: 1;
+    color: var(--ink);
+}
+
+.panel-alerta__numero {
+    display: block;
+}
+
+.panel-alerta__titulo {
+    display: block;
+    font-weight: 700;
+    color: var(--ink);
+    margin: 0.15rem 0 0.1rem;
+}
+
+.panel-alerta__ayuda {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--ink-soft);
+    margin: 0;
+}
+
+/* KPIs */
+.panel-kpi__etiqueta {
+    font-size: 0.85rem;
+    color: var(--ink-soft);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    margin: 0 0 0.35rem;
+}
+
+.panel-kpi__valor {
+    font-size: 1.75rem;
+    font-weight: 800;
+    color: var(--ink);
+    line-height: 1.1;
+    margin: 0;
+}
+
+.panel-kpi__detalle {
+    font-size: 0.875rem;
+    color: var(--ink-soft);
+    margin: 0.35rem 0 0;
+}
+
+.panel-variacion {
+    display: inline-block;
+    font-weight: 700;
+    font-size: 0.8125rem;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    margin-left: 0.25rem;
+}
+
+.panel-variacion--sube { background: var(--brand-soft); color: var(--brand-dark); }
+.panel-variacion--baja { background: var(--peligro-soft); color: var(--peligro); }
+.panel-variacion--igual { background: #E4E7EB; color: var(--ink-soft); }
+
+/* Gráficos */
+.panel-grafico {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.panel-grafico h3 {
+    font-size: 1rem;
+    font-weight: 700;
+    margin: 0;
+    color: var(--ink);
+}
+
+.panel-grafico__lienzo {
+    position: relative;
+    height: 260px;
+}
+
+.panel-grafico--alto .panel-grafico__lienzo {
+    height: 340px;
+}
+
+.panel-grafico canvas {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.panel-grafico__vacio {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    color: var(--ink-soft);
+    font-size: 0.9375rem;
+    text-align: center;
+    padding: 1rem;
+    margin: 0;
+}
+
+/* El atributo hidden debe ganarle al display: grid de arriba. */
+.panel-grafico__vacio[hidden] {
+    display: none;
+}
+
+.panel-grafico details {
+    font-size: 0.875rem;
+}
+
+.panel-grafico summary {
+    cursor: pointer;
+    color: var(--brand-dark);
+    font-weight: 600;
+}
+
+.panel-grafico details table {
+    width: 100%;
+    margin-top: 0.5rem;
+    border-collapse: collapse;
+}
+
+.panel-grafico details th,
+.panel-grafico details td {
+    padding: 0.35rem 0.5rem;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+}
+
+.panel-grafico details td.num,
+.panel-grafico details th.num {
+    text-align: right;
+}
+
+/* Controles (selector de rango, filtros) */
+.panel-controles {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 0.75rem 1rem;
+}
+
+.panel-controles label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--ink-soft);
+}
+
+.panel-controles select,
+.panel-controles input {
+    min-height: 40px;
+    min-width: 10rem;
+}
+
+.panel-controles .button {
+    min-height: 40px;
+    white-space: nowrap;
+}
+
+.panel-btn-secundario {
+    background: var(--surface);
+    color: var(--brand-dark);
+    border: 1px solid var(--brand);
+}
+
+.panel-btn-secundario:hover,
+.panel-btn-secundario:focus-visible {
+    background: var(--brand-soft);
+    color: var(--brand-dark);
+}
+
+/* Tablas propias del dashboard / analítica */
+.panel-tabla {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9375rem;
+}
+
+.panel-tabla th,
+.panel-tabla td {
+    padding: 0.65rem 0.75rem;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+    vertical-align: middle;
+}
+
+.panel-tabla thead th {
+    background: var(--page-bg);
+    font-size: 0.8125rem;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    color: var(--ink-soft);
+    position: sticky;
+    top: 0;
+}
+
+.panel-tabla tbody tr:hover {
+    background: var(--selected-bg);
+}
+
+.panel-tabla .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.panel-tabla .barra {
+    display: inline-block;
+    height: 8px;
+    background: var(--brand);
+    border-radius: 999px;
+    vertical-align: middle;
+    margin-right: 0.5rem;
+}
+
+.panel-tabla-wrap {
+    overflow-x: auto;
+}
+
+.panel-vacio {
+    padding: 1.5rem;
+    text-align: center;
+    color: var(--ink-soft);
+}
+
+/* Lista de modelos en la portada ("Gestión") */
+.dashboard .app-list {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+}
+
+.dashboard .app-list .module {
+    margin: 0;
+}
+
+.dashboard .app-list .module table {
+    width: 100%;
+}
+
+.dashboard .app-list .module th,
+.dashboard .app-list .module td {
+    padding: 0.6rem 0.9rem;
+    font-size: 0.9375rem;
+}
+
+.dashboard .app-list .module tr {
+    border-bottom: 1px solid var(--line);
+}
+
+.dashboard .app-list .addlink,
+.dashboard .app-list .changelink,
+.dashboard .app-list .viewlink {
+    font-size: 0.85rem;
+}
+
+.dashboard #content-related {
+    display: none; /* la portada usa todo el ancho; sin "acciones recientes" */
+}
+
+/* Footer */
+#footer {
+    padding: 1rem 2rem 2rem;
+}
+
+.panel-footer {
+    color: var(--ink-soft);
+    font-size: 0.85rem;
+}
+
+/* ---------- 4. Login del panel ---------- */
+.login {
+    background: var(--page-bg);
+}
+
+.login #container {
+    width: min(30rem, 100% - 2rem);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    margin: 4rem auto;
+    background: var(--surface);
+}
+
+.login #header {
+    justify-content: center;
+    padding: 1.5rem 1rem 0.5rem;
+    border-bottom: none;
+}
+
+.login #content {
+    padding: 1rem 2rem 2rem;
+}
+
+.login-panel__titulo {
+    text-align: center;
+    margin: 0 0 0.25rem;
+    font-size: 1.35rem;
+    font-weight: 800;
+}
+
+.login-panel__subtitulo {
+    text-align: center;
+    color: var(--ink-soft);
+    margin: 0 0 1.25rem;
+    font-size: 0.9375rem;
+}
+
+.login .form-row {
+    padding: 0.5rem 0;
+}
+
+.login .form-row label {
+    font-weight: 600;
+    color: var(--ink);
+    display: block;
+    margin-bottom: 0.25rem;
+}
+
+.login .form-row #id_username,
+.login .form-row #id_password {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 44px;
+    font-size: 1rem;
+}
+
+.login .submit-row {
+    border: none;
+    background: transparent;
+    padding: 1rem 0 0;
+}
+
+.login .submit-row input {
+    width: 100%;
+    min-height: 48px;
+    font-size: 1rem;
+}
+
+.login .password-reset-link {
+    margin-top: 0.75rem;
+    text-align: center;
+    font-size: 0.9375rem;
+}
+
+.login-panel__pie {
+    margin-top: 1.25rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--line);
+    text-align: center;
+    font-size: 0.9375rem;
+    color: var(--ink-soft);
+}
+
+.login-panel__pie p {
+    margin: 0.35rem 0;
+}
+
+.login .errornote {
+    font-size: 0.9375rem;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    background-image: none;
+}
+
+/* ---------- 5. Responsive ---------- */
+@media (max-width: 767px) {
+    #header {
+        padding: 0.75rem 1rem;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+
+    .breadcrumbs {
+        padding: 0.6rem 1rem;
+    }
+
+    .panel-grid,
+    .panel-grid--kpi,
+    .panel-grid--graficos {
+        grid-template-columns: 1fr;
+    }
+
+    .panel-alerta__numero {
+        font-size: 1.5rem;
+    }
+
+    .panel-grafico__lienzo {
+        height: 220px;
+    }
+
+    .login #container {
+        margin: 1.5rem auto;
+    }
+}

@@ -1,0 +1,237 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static panel_extras %}
+{% comment %}
+Analítica de ventas (panel.views.analitica). Los filtros van por GET y
+recargan la página (es una pantalla de consulta, no interactiva en vivo);
+los gráficos se dibujan con los datos embebidos en json_script.
+{% endcomment %}
+{% block bodyclass %}{{ block.super }} dashboard analitica{% endblock %}
+{% block breadcrumbs %}
+    <ol class="breadcrumbs">
+        <li><a href="{% url 'admin:index' %}">Inicio</a></li>
+        <li aria-current="page">Analítica de ventas</li>
+    </ol>
+{% endblock %}
+{% block content %}
+    <div id="content-main">
+        {# ---------- Filtros ---------- #}
+        <form method="get" class="panel-card panel-seccion" aria-label="Filtros de la analítica">
+            <div class="panel-controles">
+                <label for="f-desde">
+                    Desde
+                    <input type="date" id="f-desde" name="desde" value="{{ filtro.desde|date:'Y-m-d' }}" max="{% now 'Y-m-d' %}">
+                </label>
+                <label for="f-hasta">
+                    Hasta
+                    <input type="date" id="f-hasta" name="hasta" value="{{ filtro.hasta|date:'Y-m-d' }}" max="{% now 'Y-m-d' %}">
+                </label>
+                <label for="f-modo">
+                    Tipo de venta
+                    <select id="f-modo" name="modo">
+                        <option value="">Todas</option>
+                        {% for valor, etiqueta in modos %}
+                            <option value="{{ valor }}" {% if filtro.modo == valor %}selected{% endif %}>{{ etiqueta }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label for="f-sucursal">
+                    Sucursal de retiro
+                    <select id="f-sucursal" name="sucursal">
+                        <option value="">Todas</option>
+                        {% for suc in sucursales %}
+                            <option value="{{ suc.pk }}" {% if filtro.sucursal_id == suc.pk %}selected{% endif %}>{{ suc.nombre }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <button type="submit" class="button">Aplicar filtros</button>
+                <a class="button panel-btn-secundario"
+                   href="{{ url_api_analitica }}?{{ querystring }}{% if querystring %}&amp;{% endif %}formato=csv">
+                    <i class="bi bi-download" aria-hidden="true"></i> Exportar CSV
+                </a>
+            </div>
+            <p style="margin:0.75rem 0 0; color:var(--ink-soft); font-size:0.9rem">
+                Rápido:
+                {% for dias in rangos_rapidos %}
+                    <a class="panel-link" href="?dias={{ dias }}{% if filtro.modo %}&amp;modo={{ filtro.modo }}{% endif %}{% if filtro.sucursal_id %}&amp;sucursal={{ filtro.sucursal_id }}{% endif %}">últimos {{ dias }} días</a>{% if not forloop.last %} · {% endif %}
+                {% endfor %}
+                &nbsp;|&nbsp; Mostrando del <strong>{{ filtro.desde|date:"d/m/Y" }}</strong> al <strong>{{ filtro.hasta|date:"d/m/Y" }}</strong> ({{ filtro.dias }} día{{ filtro.dias|pluralize }}).
+            </p>
+        </form>
+        {# ---------- KPIs del período ---------- #}
+        <section class="panel-seccion" aria-labelledby="titulo-kpis">
+            <h2 id="titulo-kpis" class="visually-hidden">Indicadores del período</h2>
+            <div class="panel-grid panel-grid--kpi">
+                <div class="panel-card panel-kpi">
+                    <p class="panel-kpi__etiqueta">Ventas del período</p>
+                    <p class="panel-kpi__valor">{{ kpis.monto|moneda }}</p>
+                    <p class="panel-kpi__detalle">Período anterior: {{ kpis.monto_anterior|moneda }} {{ kpis.variacion_pct|variacion }}</p>
+                </div>
+                <div class="panel-card panel-kpi">
+                    <p class="panel-kpi__etiqueta">Pedidos</p>
+                    <p class="panel-kpi__valor">{{ kpis.pedidos }}</p>
+                    <p class="panel-kpi__detalle">{{ kpis.unidades }} unidad{{ kpis.unidades|pluralize:"es" }} vendida{{ kpis.unidades|pluralize }} · antes: {{ kpis.pedidos_anterior }}</p>
+                </div>
+                <div class="panel-card panel-kpi">
+                    <p class="panel-kpi__etiqueta">Ticket promedio</p>
+                    <p class="panel-kpi__valor">{{ kpis.ticket_promedio|moneda }}</p>
+                    <p class="panel-kpi__detalle">Monto promedio por pedido.</p>
+                </div>
+            </div>
+        </section>
+        {# ---------- Gráficos ---------- #}
+        <section class="panel-seccion" aria-labelledby="titulo-graficos">
+            <h2 id="titulo-graficos" class="visually-hidden">Gráficos</h2>
+            <div class="panel-grid panel-grid--graficos">
+                {% include 'admin/panel/includes/grafico.html' with id='dias' titulo='Ventas por día' aria='Gráfico de barras con el monto vendido por día' cabeceras='Día|Pedidos#|Monto#' alto=1 %}
+                {% include 'admin/panel/includes/grafico.html' with id='productos' titulo='Top 10 productos' aria='Gráfico de barras horizontales con los productos más vendidos por monto' cabeceras='Producto|Categoría|Unidades#|Monto#|% del total#' alto=1 %}
+                {% include 'admin/panel/includes/grafico.html' with id='categorias' titulo='Ventas por categoría' aria='Gráfico de dona con la participación de cada categoría en las ventas' cabeceras='Categoría|Unidades#|Monto#|% del total#' %}
+                {% include 'admin/panel/includes/grafico.html' with id='medios' titulo='Medios de pago' aria='Gráfico de barras con el monto vendido por medio de pago' cabeceras='Medio|Pedidos#|Monto#|% del total#' %}
+            </div>
+        </section>
+        {# ---------- Tabla: por producto ---------- #}
+        <section class="panel-seccion" aria-labelledby="titulo-productos">
+            <div class="panel-seccion__cabecera">
+                <h2 id="titulo-productos">Ventas por producto</h2>
+                <p>{{ tabla_productos|length }} producto{{ tabla_productos|length|pluralize }} con ventas en el período.</p>
+            </div>
+            <div class="panel-card panel-tabla-wrap" style="padding:0">
+                {% if tabla_productos %}
+                    <table class="panel-tabla">
+                        <thead>
+                            <tr>
+                                <th scope="col">#</th>
+                                <th scope="col">Producto</th>
+                                <th scope="col">Categoría</th>
+                                <th scope="col" class="num">Unidades</th>
+                                <th scope="col" class="num">Monto</th>
+                                <th scope="col" class="num">% del total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for fila in tabla_productos %}
+                                <tr>
+                                    <td>{{ forloop.counter }}</td>
+                                    <td>
+                                        {% if fila.producto_id %}
+                                            <a href="{% url 'admin:catalogo_producto_change' fila.producto_id %}">{{ fila.nombre }}</a>
+                                        {% else %}
+                                            {{ fila.nombre }}
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ fila.categoria }}</td>
+                                    <td class="num">{{ fila.unidades }}</td>
+                                    <td class="num">{{ fila.monto|moneda }}</td>
+                                    <td class="num">
+                                        <span class="barra" style="width: {{ fila.porcentaje|floatformat:0 }}px" aria-hidden="true"></span>{{ fila.porcentaje }}%
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                {% else %}
+                    <p class="panel-vacio">No hubo ventas en el período seleccionado.</p>
+                {% endif %}
+            </div>
+        </section>
+        {# ---------- Tabla: por categoría ---------- #}
+        <section class="panel-seccion" aria-labelledby="titulo-categorias">
+            <div class="panel-seccion__cabecera">
+                <h2 id="titulo-categorias">Ventas por categoría</h2>
+            </div>
+            <div class="panel-card panel-tabla-wrap" style="padding:0">
+                {% if tabla_categorias %}
+                    <table class="panel-tabla">
+                        <thead>
+                            <tr>
+                                <th scope="col">Categoría</th>
+                                <th scope="col" class="num">Productos distintos</th>
+                                <th scope="col" class="num">Unidades</th>
+                                <th scope="col" class="num">Monto</th>
+                                <th scope="col" class="num">% del total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for fila in tabla_categorias %}
+                                <tr>
+                                    <td>{{ fila.categoria }}</td>
+                                    <td class="num">{{ fila.productos }}</td>
+                                    <td class="num">{{ fila.unidades }}</td>
+                                    <td class="num">{{ fila.monto|moneda }}</td>
+                                    <td class="num">
+                                        <span class="barra" style="width: {{ fila.porcentaje|floatformat:0 }}px" aria-hidden="true"></span>{{ fila.porcentaje }}%
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                {% else %}
+                    <p class="panel-vacio">No hubo ventas en el período seleccionado.</p>
+                {% endif %}
+            </div>
+        </section>
+        {# ---------- Tablas: medio de pago y modalidad ---------- #}
+        <div class="panel-grid panel-grid--graficos panel-seccion">
+            <section class="panel-card" aria-labelledby="titulo-medios" style="padding:0">
+                <h2 id="titulo-medios" class="visually-hidden">Ventas por medio de pago</h2>
+                <table class="panel-tabla">
+                    <caption style="text-align:left; padding:0.75rem 0.75rem 0.25rem; font-weight:700">Por medio de pago</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Medio</th>
+                            <th scope="col" class="num">Pedidos</th>
+                            <th scope="col" class="num">Monto</th>
+                            <th scope="col" class="num">%</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for fila in tabla_medios %}
+                            <tr>
+                                <td>{{ fila.etiqueta }}</td>
+                                <td class="num">{{ fila.pedidos }}</td>
+                                <td class="num">{{ fila.monto|moneda }}</td>
+                                <td class="num">{{ fila.porcentaje }}%</td>
+                            </tr>
+                        {% empty %}
+                            <tr><td colspan="4" class="panel-vacio">Sin datos.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </section>
+            <section class="panel-card" aria-labelledby="titulo-modalidades" style="padding:0">
+                <h2 id="titulo-modalidades" class="visually-hidden">Ventas por modalidad de entrega</h2>
+                <table class="panel-tabla">
+                    <caption style="text-align:left; padding:0.75rem 0.75rem 0.25rem; font-weight:700">Por modalidad de entrega</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Modalidad</th>
+                            <th scope="col" class="num">Pedidos</th>
+                            <th scope="col" class="num">Monto</th>
+                            <th scope="col" class="num">%</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for fila in tabla_modalidades %}
+                            <tr>
+                                <td>{{ fila.etiqueta }}</td>
+                                <td class="num">{{ fila.pedidos }}</td>
+                                <td class="num">{{ fila.monto|moneda }}</td>
+                                <td class="num">{{ fila.porcentaje }}%</td>
+                            </tr>
+                        {% empty %}
+                            <tr><td colspan="4" class="panel-vacio">Sin datos.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </section>
+        </div>
+    </div>
+{% endblock %}
+{% block sidebar %}{% endblock %}
+{% block extrabody %}
+    {{ datos|json_script:"datos-analitica" }}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="{% static 'panel/js/graficos.js' %}"></script>
+    <script>
+        PanelGraficos.init({});
+    </script>
+{% endblock %}

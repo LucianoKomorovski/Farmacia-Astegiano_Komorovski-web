@@ -1,17 +1,40 @@
 {% comment %}
 Campo de formulario con estilo Bootstrap + errores.
 Uso: include 'includes/campo_form.html' with campo=form.username
-El type del input sale del widget del campo (text, email, password...).
+Soporta inputs comunes (text, email, password...), <select> y <textarea>:
+el tipo de control sale del widget del campo (campo.field.widget.input_type).
 Ojo: los comentarios de numeral son solo de UNA línea; para bloques, comment.
 {% endcomment %}
 <div class="mb-3">
-    <label for="{{ campo.id_for_label }}" class="form-label">{{ campo.label }}</label>
-    <input type="{{ campo.field.widget.input_type }}"
-           name="{{ campo.html_name }}"
-           id="{{ campo.id_for_label }}"
-           {% if campo.field.widget.input_type != 'password' %}value="{{ campo.value|default_if_none:'' }}"{% endif %}
-           class="form-control{% if campo.errors %} is-invalid{% endif %}"
-           {% if campo.field.required %}required{% endif %}>
+    <label for="{{ campo.id_for_label }}" class="form-label">
+        {{ campo.label }}{% if not campo.field.required %} <span class="text-muted fw-normal small">(opcional)</span>{% endif %}
+    </label>
+    {% if campo.field.widget.input_type == 'select' %}
+        <select name="{{ campo.html_name }}"
+                id="{{ campo.id_for_label }}"
+                class="form-select{% if campo.errors %} is-invalid{% endif %}"
+                {% if campo.field.required %}required{% endif %}>
+            {% for valor, etiqueta in campo.field.choices %}
+                <option value="{{ valor|default_if_none:'' }}"
+                        {% if campo.value|stringformat:'s' == valor|stringformat:'s' %}selected{% endif %}>
+                    {{ etiqueta }}
+                </option>
+            {% endfor %}
+        </select>
+    {% elif campo.field.widget.input_type == 'textarea' or not campo.field.widget.input_type %}
+        <textarea name="{{ campo.html_name }}"
+                  id="{{ campo.id_for_label }}"
+                  rows="{{ campo.field.widget.attrs.rows|default:3 }}"
+                  class="form-control{% if campo.errors %} is-invalid{% endif %}"
+                  {% if campo.field.required %}required{% endif %}>{{ campo.value|default_if_none:'' }}</textarea>
+    {% else %}
+        <input type="{{ campo.field.widget.input_type }}"
+               name="{{ campo.html_name }}"
+               id="{{ campo.id_for_label }}"
+               {% if campo.field.widget.input_type != 'password' %}value="{{ campo.value|default_if_none:'' }}"{% endif %}
+               class="form-control{% if campo.errors %} is-invalid{% endif %}"
+               {% if campo.field.required %}required{% endif %}>
+    {% endif %}
     {% if campo.help_text %}
         {# |safe: los textos de ayuda de Django traen HTML (listas de requisitos) #}
         <div class="form-text">{{ campo.help_text|safe }}</div>

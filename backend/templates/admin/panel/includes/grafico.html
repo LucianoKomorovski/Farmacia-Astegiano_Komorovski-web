@@ -1,0 +1,33 @@
+{% load panel_extras %}
+{% comment %}
+Tarjeta de gráfico reutilizable (portada y Analítica).
+Parámetros del include:
+  id         → sufijo: el canvas será "grafico-{id}" y la tabla "tabla-{id}"
+  titulo     → título visible
+  aria       → descripción para lectores de pantalla (aria-label del canvas)
+  cabeceras  → columnas de la tabla accesible separadas por | ('#' = numérica)
+  alto       → (opcional) "1" para una tarjeta más alta
+El JS (graficos.js) dibuja el canvas y completa el <tbody>.
+{% endcomment %}
+<section class="panel-card panel-grafico{% if alto %} panel-grafico--alto{% endif %}"
+         aria-labelledby="titulo-grafico-{{ id }}">
+    <h3 id="titulo-grafico-{{ id }}">{{ titulo }}</h3>
+    <div class="panel-grafico__lienzo">
+        <canvas id="grafico-{{ id }}" role="img" aria-label="{{ aria }}"></canvas>
+        <p class="panel-grafico__vacio" hidden>Sin ventas en el período seleccionado.</p>
+    </div>
+    <details>
+        <summary>Ver datos en tabla</summary>
+        <table id="tabla-{{ id }}">
+            <caption class="visually-hidden">{{ titulo }} — datos</caption>
+            <thead>
+                <tr>
+                    {% for cabecera in cabeceras|split %}
+                        <th scope="col" {% if cabecera|es_numerica %}class="num"{% endif %}>{{ cabecera|sin_marca }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </details>
+</section>

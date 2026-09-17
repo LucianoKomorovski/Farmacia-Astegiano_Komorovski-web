@@ -1,0 +1,69 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static %}
+{% comment %}
+Login del PANEL (pisa admin/login.html). Misma lógica que el de Django
+(mismo form, misma URL), con diseño de marca y mensajes de ayuda para el
+personal: solicitar acceso, recuperar contraseña, volver al sitio.
+{% endcomment %}
+{% block title %}{% if form.errors %}Error: {% endif %}Ingresar | {{ site_title }}{% endblock %}
+{% block extrastyle %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'admin/css/login.css' %}">
+    {{ form.media }}
+{% endblock %}
+{% block bodyclass %}{{ block.super }} login{% endblock %}
+{% block usertools %}{% endblock %}
+{% block nav-global %}{% endblock %}
+{% block nav-sidebar %}{% endblock %}
+{% block content_title %}{% endblock %}
+{% block nav-breadcrumbs %}{% endblock %}
+{% block footer %}{% endblock %}
+{% block content %}
+    <h1 class="login-panel__titulo">Ingresar al panel</h1>
+    <p class="login-panel__subtitulo">Acceso para el personal de las farmacias.</p>
+    {% if form.errors and not form.non_field_errors %}
+        <p class="errornote" role="alert">
+            {% blocktranslate count counter=form.errors.items|length %}Please correct the error below.{% plural %}Please correct the errors below.{% endblocktranslate %}
+        </p>
+    {% endif %}
+    {% for error in form.non_field_errors %}
+        <p class="errornote" role="alert">{{ error }}</p>
+    {% endfor %}
+    <div id="content-main">
+        {% if user.is_authenticated %}
+            <p class="errornote" role="alert">
+                Estás conectado como <strong>{{ username }}</strong>, pero esa cuenta no tiene acceso al panel.
+                Podés ingresar con otra cuenta.
+            </p>
+        {% endif %}
+        <form action="{{ app_path }}" method="post" id="login-form">
+            {% csrf_token %}
+            <div class="form-row">
+                {{ form.username.errors }}
+                <label for="{{ form.username.id_for_label }}">Usuario</label>
+                {{ form.username }}
+            </div>
+            <div class="form-row">
+                {{ form.password.errors }}
+                <label for="{{ form.password.id_for_label }}">Contraseña</label>
+                {{ form.password }}
+                <input type="hidden" name="next" value="{{ next }}">
+            </div>
+            <div class="submit-row">
+                <input type="submit" value="Ingresar">
+            </div>
+            <div class="password-reset-link">
+                <a href="{% url 'password_reset' %}">¿Olvidaste tu contraseña?</a>
+            </div>
+        </form>
+        <div class="login-panel__pie">
+            <p>
+                ¿Sos personal nuevo?
+                <a href="{% url 'solicitud_staff' %}">Solicitá acceso al panel</a>
+            </p>
+            <p>
+                <a href="{% url 'inicio' %}"><i class="bi bi-arrow-left" aria-hidden="true"></i> Volver al sitio</a>
+            </p>
+        </div>
+    </div>
+{% endblock %}

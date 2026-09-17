@@ -1,0 +1,54 @@
+{% extends "admin/base.html" %}
+{% load static %}
+{% comment %}
+Base del PANEL: pisa admin/base_site.html de Django para toda pantalla del admin
+(portada, listados, formularios, login). Solo agrega marca y estilos; la
+estructura (header, sidebar, contenido) sigue siendo la de Django.
+{% endcomment %}
+{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:"Panel" }}{% endblock %}
+{# Sin dark_mode.css ni theme.js: el panel se ve siempre en tema claro, #}
+{# así todas las empleadas ven exactamente lo mismo (y los colores planos de marca). #}
+{% block dark-mode-vars %}{% endblock %}
+{% block extrastyle %}
+    {{ block.super }}
+    <link rel="icon" type="image/svg+xml" href="{% static 'img/favicon.svg' %}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+          rel="stylesheet">
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="{% static 'panel/css/panel.css' %}">
+{% endblock %}
+{% block branding %}
+    <div id="site-name">
+        <a href="{% url 'admin:index' %}" class="panel-marca">
+            <img src="{% static 'img/logo.svg' %}"
+                 alt="Farmacias Astegiano y Komorovski"
+                 class="panel-marca__logo">
+            <span class="panel-marca__texto">Panel</span>
+        </a>
+    </div>
+{% endblock %}
+{% block userlinks %}
+    <a href="{% url 'admin:index' %}"><i class="bi bi-speedometer2" aria-hidden="true"></i> Resumen</a> /
+    {% if perms.pedidos.view_pedido %}
+        <a href="{% url 'admin:panel_analitica' %}"><i class="bi bi-bar-chart-line" aria-hidden="true"></i> Analítica</a> /
+    {% endif %}
+    {% if site_url %}
+        <a href="{{ site_url }}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> Ver sitio</a> /
+    {% endif %}
+    {% if user.has_usable_password %}
+        <a href="{% url 'admin:password_change' %}"><i class="bi bi-key" aria-hidden="true"></i> Cambiar contraseña</a> /
+    {% endif %}
+    <form id="logout-form" method="post" action="{% url 'admin:logout' %}">
+        {% csrf_token %}
+        <button type="submit"><i class="bi bi-box-arrow-right" aria-hidden="true"></i> Cerrar sesión</button>
+    </form>
+{% endblock %}
+{% block footer %}
+    <div class="panel-footer">
+        Farmacias Astegiano y Komorovski · Las Parejas, Santa Fe ·
+        <a href="{% url 'admin:index' %}">Panel</a>
+    </div>
+{% endblock %}

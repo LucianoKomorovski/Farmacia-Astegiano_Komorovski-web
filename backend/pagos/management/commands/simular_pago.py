@@ -36,15 +36,22 @@ class Command(BaseCommand):
                 f'El pedido {numero} no está pendiente de pago (estado: {pedido.estado}).'
             )
 
-        pago, _ = Pago.objects.get_or_create(
-            pedido=pedido,
-            estado=Pago.Estado.PENDIENTE,
-            defaults={
-                'medio': pedido.medio_pago,
-                'monto': pedido.total,
-                'id_externo': f'sim-{numero}',
-            },
+        # Un pedido puede tener varios Pago pendientes (reintentos de MP).
+        # get_or_create exige 0 o 1 fila; si hay 2+ revienta. Tomamos el último
+        # o creamos uno si no hay ninguno.
+        pago = (
+            Pago.objects.filter(pedido=pedido, estado=Pago.Estado.PENDIENTE)
+            .order_by('-created_at')
+            .first()
         )
+        if pago is None:
+            pago = Pago.objects.create(
+                pedido=pedido,
+                estado=Pago.Estado.PENDIENTE,
+                medio=pedido.medio_pago,
+                monto=pedido.total,
+                id_externo=f'sim-{numero}',
+            )
         pago.estado = Pago.Estado.APROBADO
         pago.confirmado_en = timezone.now()
         pago.raw_payload = {'simulado': True, 'status': 'approved'}

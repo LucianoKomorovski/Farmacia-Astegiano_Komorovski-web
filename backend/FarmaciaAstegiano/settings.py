@@ -70,7 +70,10 @@ if not DEBUG:
 # Application definition
 
 INSTALLED_APPS = [
-    'django.contrib.admin',
+    # En lugar de 'django.contrib.admin': misma app, pero con nuestro AdminSite
+    # (panel.sites.PanelAdminSite) como admin.site → el "Panel" de la farmacia.
+    'panel.apps.PanelAdminConfig',
+    'panel.apps.PanelConfig',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
