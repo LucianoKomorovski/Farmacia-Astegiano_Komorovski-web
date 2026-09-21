@@ -86,6 +86,17 @@ def crear_pedido_desde_carrito(
     if carrito.modo is None:
         raise PedidoError('El carrito no tiene productos válidos.')
 
+    for linea in lineas:
+        producto = linea.producto
+        if not producto.visible_en_tienda:
+            raise PedidoError(
+                f'"{producto.nombre}" ya no está disponible en la tienda.'
+            )
+        if producto.tipo != carrito.modo:
+            raise PedidoError(
+                f'"{producto.nombre}" no corresponde al tipo de este carrito.'
+            )
+
     assert carrito.modo is not None
     es_encargue = carrito.modo == Carrito.Modo.ENCARGUE
 

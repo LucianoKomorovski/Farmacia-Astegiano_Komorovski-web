@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from django.db import transaction
 from django.db.models import QuerySet
 from django.http import HttpRequest
 
@@ -62,44 +63,47 @@ def agregar_producto(carrito: Carrito, producto: Producto, cantidad: int = 1) ->
     if not producto.visible_en_tienda:
         raise CarritoError('Ese producto no está disponible en la tienda.')
 
-    # Primer ítem: fija el modo del carrito.
-    if carrito.modo is None:
-        carrito.modo = (
-            Carrito.Modo.ENCARGUE
-            if producto.es_encargue
-            else Carrito.Modo.INMEDIATO
-        )
-        carrito.save(update_fields=['modo', 'updated_at'])
-    elif carrito.modo != producto.tipo:
-        raise CarritoError(
-            'Este carrito es solo de productos '
-            f'"{Carrito.Modo(carrito.modo).label}". '
-            'Vaciá el carrito para comprar el otro tipo.'
-        )
+    with transaction.atomic():
+        carrito = Carrito.objects.select_for_update().get(pk=carrito.pk)
 
-    linea = carrito.lineas.filter(producto=producto).first()  # pyright: ignore[reportAttributeAccessIssue]
-    nueva_cantidad = cantidad if linea is None else linea.cantidad + cantidad
-
-    if carrito.modo == Carrito.Modo.INMEDIATO:
-        disponible = _stock_disponible(producto)
-        if nueva_cantidad > disponible:
+        # Releer modo bajo lock: evita mezclar inmediato/encargue en una carrera.
+        if carrito.modo is None:
+            carrito.modo = (
+                Carrito.Modo.ENCARGUE
+                if producto.es_encargue
+                else Carrito.Modo.INMEDIATO
+            )
+            carrito.save(update_fields=['modo', 'updated_at'])
+        elif carrito.modo != producto.tipo:
             raise CarritoError(
-                f'Solo hay {disponible} unidad(es) disponibles de "{producto.nombre}".'
+                'Este carrito es solo de productos '
+                f'"{Carrito.Modo(carrito.modo).label}". '
+                'Vaciá el carrito para comprar el otro tipo.'
             )
 
-    if linea is None:
-        return LineaCarrito.objects.create(
-            carrito=carrito,
-            producto=producto,
-            cantidad=nueva_cantidad,
-            precio_unitario=producto.precio,
-        )
+        linea = carrito.lineas.filter(producto=producto).first()  # pyright: ignore[reportAttributeAccessIssue]
+        nueva_cantidad = cantidad if linea is None else linea.cantidad + cantidad
 
-    linea.cantidad = nueva_cantidad
-    linea.precio_unitario = producto.precio
-    linea.save(update_fields=['cantidad', 'precio_unitario'])
-    carrito.save(update_fields=['updated_at'])
-    return linea
+        if carrito.modo == Carrito.Modo.INMEDIATO:
+            disponible = _stock_disponible(producto)
+            if nueva_cantidad > disponible:
+                raise CarritoError(
+                    f'Solo hay {disponible} unidad(es) disponibles de "{producto.nombre}".'
+                )
+
+        if linea is None:
+            return LineaCarrito.objects.create(
+                carrito=carrito,
+                producto=producto,
+                cantidad=nueva_cantidad,
+                precio_unitario=producto.precio,
+            )
+
+        linea.cantidad = nueva_cantidad
+        linea.precio_unitario = producto.precio
+        linea.save(update_fields=['cantidad', 'precio_unitario'])
+        carrito.save(update_fields=['updated_at'])
+        return linea
 
 
 def actualizar_cantidad(linea: LineaCarrito, cantidad: int) -> None:

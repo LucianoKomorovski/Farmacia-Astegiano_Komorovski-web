@@ -66,12 +66,69 @@ def _urls_publicas_https(base: str) -> bool:
     return base.startswith('https://')
 
 
+# El webhook pisa raw_payload con el payment (sin init_point). Guardamos la
+# preference acá para reusar el mismo Checkout Pro si el cliente vuelve a Pagar.
+CLAVE_MP_PREF_ID = '_mp_preference_id'
+CLAVE_MP_INIT_POINT = '_mp_init_point'
+CLAVE_MP_SANDBOX_INIT_POINT = '_mp_sandbox_init_point'
+
+
+def _checkout_mp_guardado(payload: dict[str, Any]) -> dict[str, str]:
+    """Id y URLs de Checkout Pro (claves durables o payload legacy de preference)."""
+    claves: dict[str, str] = {}
+    pref_id = payload.get(CLAVE_MP_PREF_ID)
+    init_point = payload.get(CLAVE_MP_INIT_POINT) or payload.get('init_point') or ''
+    sandbox = (
+        payload.get(CLAVE_MP_SANDBOX_INIT_POINT)
+        or payload.get('sandbox_init_point')
+        or ''
+    )
+    if init_point:
+        claves[CLAVE_MP_INIT_POINT] = str(init_point)
+    if sandbox:
+        claves[CLAVE_MP_SANDBOX_INIT_POINT] = str(sandbox)
+    if pref_id:
+        claves[CLAVE_MP_PREF_ID] = str(pref_id)
+    elif (init_point or sandbox) and payload.get('id'):
+        # Preference original: id + init_point. Un payment también tiene id,
+        # pero no trae URL de checkout: no lo tomamos como preference_id.
+        claves[CLAVE_MP_PREF_ID] = str(payload['id'])
+    return claves
+
+
+def _payload_preferencia_mp(data: dict[str, Any]) -> dict[str, Any]:
+    """Respuesta de preference.create + claves que sobreviven al webhook."""
+    payload = dict(data)
+    payload.update(_checkout_mp_guardado(data))
+    if data.get('id') is not None:
+        payload[CLAVE_MP_PREF_ID] = str(data['id'])
+    return payload
+
+
+def _payload_webhook_mp(pago: Pago, data: dict[str, Any]) -> dict[str, Any]:
+    """Payload del payment sin borrar URL/id de la preferencia ya creada."""
+    payload = dict(data)
+    anterior = pago.raw_payload if isinstance(pago.raw_payload, dict) else {}
+    payload.update(_checkout_mp_guardado(anterior))
+    return payload
+
+
 def _init_point_mp(data: dict[str, Any]) -> str:
-    """Sandbox usa sandbox_init_point; producción usa init_point."""
+    """Sandbox usa sandbox_init_point; producción usa init_point.
+
+    Tras un webhook el payment no trae init_point: leemos _mp_* (o el
+    payload legacy de la preference si todavía está).
+    """
     token = getattr(settings, 'MERCADOPAGO_ACCESS_TOKEN', '')
+    sandbox = (
+        data.get(CLAVE_MP_SANDBOX_INIT_POINT)
+        or data.get('sandbox_init_point')
+        or ''
+    )
+    prod = data.get(CLAVE_MP_INIT_POINT) or data.get('init_point') or ''
     if token.startswith('TEST-'):
-        return data.get('sandbox_init_point') or data.get('init_point', '')
-    return data.get('init_point') or data.get('sandbox_init_point', '')
+        return sandbox or prod
+    return prod or sandbox
 
 
 def _mensaje_error_mp(response: dict) -> str:
@@ -92,9 +149,36 @@ def _exclusiones_mp(medio: str) -> dict[str, list[dict[str, str]]]:
     return {}
 
 
+def _preferencia_reutilizable(pedido: Pedido) -> tuple[Pago, str] | None:
+    """Reusa Checkout Pro ya creado para no dejar dos preferencias pagables.
+
+    Cada GET a /pagos/pagar/ abría otra preference: el cliente podía pagar
+    dos pestañas y Mercado Pago cobraba dos veces el mismo pedido.
+    """
+    candidatos = (
+        Pago.objects.select_for_update()
+        .filter(
+            pedido=pedido,
+            medio__in=MEDIOS_MP,
+            # rejected no cierra la preference en MP: reusar evita un 2º checkout.
+            estado__in=(Pago.Estado.PENDIENTE, Pago.Estado.RECHAZADO),
+        )
+        .exclude(id_externo='')
+        .order_by('-created_at')
+    )
+    for pago in candidatos:
+        payload = pago.raw_payload if isinstance(pago.raw_payload, dict) else {}
+        init_point = _init_point_mp(payload)
+        if init_point:
+            return pago, init_point
+    return None
+
+
 @transaction.atomic
 def crear_preferencia_mp(request, pedido: Pedido) -> tuple[Pago, str]:
     """Crea preferencia MP y devuelve (Pago, init_point URL)."""
+    pedido = Pedido.objects.select_for_update().get(pk=pedido.pk)
+
     if pedido.medio_pago not in MEDIOS_MP:
         raise PagoError('Este pedido no usa pago online.')
 
@@ -104,6 +188,10 @@ def crear_preferencia_mp(request, pedido: Pedido) -> tuple[Pago, str]:
     )
     if pedido.estado not in estados_pagables:
         raise PagoError('Este pedido no está pendiente de pago.')
+
+    reuso = _preferencia_reutilizable(pedido)
+    if reuso is not None:
+        return reuso
 
     pago = Pago.objects.create(
         pedido=pedido,
@@ -164,10 +252,10 @@ def crear_preferencia_mp(request, pedido: Pedido) -> tuple[Pago, str]:
         raise PagoError(_mensaje_error_mp(response))
 
     pago.id_externo = str(data['id'])
-    pago.raw_payload = data
+    pago.raw_payload = _payload_preferencia_mp(data)
     pago.save(update_fields=['id_externo', 'raw_payload'])
 
-    init_point = _init_point_mp(data)
+    init_point = _init_point_mp(pago.raw_payload)
     if not init_point:
         raise PagoError('Mercado Pago no devolvió URL de pago.')
 
@@ -185,7 +273,12 @@ def validar_firma_webhook(request) -> bool:
     x_request_id = request.headers.get('x-request-id', '')
     data_id = request.GET.get('data.id', request.GET.get('id', ''))
 
-    parts = dict(p.split('=', 1) for p in x_signature.split(',') if '=' in p)
+    parts: dict[str, str] = {}
+    for pieza in x_signature.split(','):
+        if '=' not in pieza:
+            continue
+        clave, valor = pieza.split('=', 1)
+        parts[clave.strip()] = valor.strip()
     ts = parts.get('ts', '')
     received_hash = parts.get('v1', '')
 
@@ -196,6 +289,10 @@ def validar_firma_webhook(request) -> bool:
         hashlib.sha256,
     ).hexdigest()
 
+    # compare_digest revienta si las longitudes difieren (firma vacía / basura)
+    # y el webhook devolvería 500 en vez de 401.
+    if not received_hash or len(received_hash) != len(expected):
+        return False
     return hmac.compare_digest(expected, received_hash)
 
 
@@ -224,6 +321,19 @@ def _buscar_pago_mp(pedido: Pedido, payment_id: str, data: dict[str, Any]) -> Pa
     )
 
 
+def _persistir_cobro_duplicado(pago: Pago, data: dict[str, Any]) -> None:
+    """Segundo payment_id approved sobre un pedido ya confirmado: plata extra."""
+    payload = _payload_webhook_mp(pago, data)
+    payload['_cobro_duplicado'] = True
+    pago.raw_payload = payload
+    campos = ['raw_payload', 'id_externo']
+    if pago.estado != Pago.Estado.APROBADO:
+        pago.estado = Pago.Estado.APROBADO
+        pago.confirmado_en = timezone.now()
+        campos.extend(['estado', 'confirmado_en'])
+    pago.save(update_fields=campos)
+
+
 def _persistir_webhook_tarde(
     pago: Pago,
     data: dict[str, Any],
@@ -235,7 +345,7 @@ def _persistir_webhook_tarde(
     Pago APROBADO para que staff lo vea, con _webhook_tarde para no confundirlo
     con una confirmación exitosa.
     """
-    payload = dict(data)
+    payload = _payload_webhook_mp(pago, data)
     payload['_webhook_tarde'] = True
     payload['_pedido_estado'] = estado_pedido
     pago.raw_payload = payload
@@ -298,17 +408,29 @@ def procesar_notificacion_mp(payment_id: str) -> None:
             id_externo=payment_id_str,
         )
 
-    pago.raw_payload = data
-    pago.id_externo = payment_id_str
-
     estados_pagables = (
         Pedido.Estado.PENDIENTE_PAGO,
         Pedido.Estado.PENDIENTE_PAGO_ENCARGUE,
     )
 
     if estado_mp == 'approved':
+        pago.raw_payload = _payload_webhook_mp(pago, data)
+        pago.id_externo = payment_id_str
         # Reintento después de confirmar: sincronizar Pago y no volver a confirmar.
         if pedido.estado == Pedido.Estado.CONFIRMADO:
+            hay_otro_aprobado = (
+                Pago.objects.filter(pedido=pedido, estado=Pago.Estado.APROBADO)
+                .exclude(pk=pago.pk)
+                .exists()
+            )
+            if hay_otro_aprobado:
+                logger.warning(
+                    'Cobro duplicado MP: pedido %s ya confirmado (payment_id=%s).',
+                    pedido.numero,
+                    payment_id_str,
+                )
+                _persistir_cobro_duplicado(pago, data)
+                return
             if pago.estado != Pago.Estado.APROBADO:
                 pago.estado = Pago.Estado.APROBADO
                 pago.confirmado_en = timezone.now()
@@ -358,9 +480,25 @@ def procesar_notificacion_mp(payment_id: str) -> None:
         else:
             pago.save(update_fields=['raw_payload', 'id_externo'])
     elif estado_mp in ('rejected', 'cancelled'):
+        # Un intento rechazado no puede pisar un cobro ya aprobado (misma preference,
+        # otra tarjeta): staff vería RECHAZADO y pediría pagar de nuevo.
+        if pago.estado == Pago.Estado.APROBADO:
+            logger.warning(
+                'Webhook MP %s ignorado: pago %s del pedido %s ya está aprobado.',
+                estado_mp,
+                payment_id_str,
+                pedido.numero,
+            )
+            return
+        pago.raw_payload = _payload_webhook_mp(pago, data)
+        pago.id_externo = payment_id_str
         pago.estado = Pago.Estado.RECHAZADO
         pago.save(update_fields=['estado', 'raw_payload', 'id_externo'])
     else:
+        if pago.estado == Pago.Estado.APROBADO:
+            return
+        pago.raw_payload = _payload_webhook_mp(pago, data)
+        pago.id_externo = payment_id_str
         pago.save(update_fields=['raw_payload', 'id_externo'])
 
 

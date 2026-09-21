@@ -83,6 +83,9 @@ class CheckoutForm(forms.Form):
         if modalidad == Pedido.ModalidadEntrega.RETIRO_SUCURSAL:
             if not datos.get('sucursal_retiro'):
                 self.add_error('sucursal_retiro', 'Elegí una sucursal.')
+            datos['direccion_envio'] = ''
+            datos['fecha_entrega'] = None
+            datos['franja_envio'] = None
 
         elif modalidad == Pedido.ModalidadEntrega.ENVIO:
             if not datos.get('direccion_envio', '').strip():
@@ -101,6 +104,13 @@ class CheckoutForm(forms.Form):
                         'franja_envio',
                         f'No hay cupo disponible en "{franja.nombre}" para esa fecha.',
                     )
+            datos['sucursal_retiro'] = None
+
+        elif modalidad == Pedido.ModalidadEntrega.A_COORDINAR:
+            datos['sucursal_retiro'] = None
+            datos['direccion_envio'] = ''
+            datos['fecha_entrega'] = None
+            datos['franja_envio'] = None
 
         if not self.es_encargue and not datos.get('medio_pago'):
             self.add_error('medio_pago', 'Elegí un medio de pago.')
