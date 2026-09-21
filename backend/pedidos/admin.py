@@ -132,7 +132,7 @@ class PedidoAdmin(admin.ModelAdmin):
     )
     list_filter = ('estado', 'modo', 'modalidad_entrega', 'medio_pago', 'sucursal_retiro')
     search_fields = ('numero', 'nombre_cliente', 'email', 'telefono')
-    readonly_fields = ('numero', 'created_at', 'updated_at', 'confirmado_en')
+    readonly_fields = ('numero', 'estado', 'created_at', 'updated_at', 'confirmado_en')
     inlines = (LineaPedidoInline, EventoPedidoInline)
     raw_id_fields = ('sucursal_retiro', 'franja_envio', 'usuario')
     # Evita una consulta por fila al mostrar la sucursal / franja en el listado.

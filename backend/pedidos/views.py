@@ -47,8 +47,8 @@ def checkout(request: HttpRequest) -> HttpResponse:
                 pedido = crear_pedido_desde_carrito(request, carrito, form.cleaned_data)
                 _registrar_pedido_en_sesion(request, pedido.numero)
 
-                # Pago online → redirigir a Mercado Pago.
-                if pedido_usa_pago_online(pedido):
+                # Pago online solo si el estado admite cobro (no pendiente_encargue).
+                if pedido.puede_pagar_online and pedido_usa_pago_online(pedido):
                     return redirect('pagos_iniciar', numero=pedido.numero)
 
                 return redirect('pedido_confirmacion', numero=pedido.numero)
