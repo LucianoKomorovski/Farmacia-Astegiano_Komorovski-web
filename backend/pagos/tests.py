@@ -314,6 +314,89 @@ class MercadoPagoMockTests(TestCase):
         self.assertEqual(mock_sdk.preference.return_value.create.call_count, 1)
         self.assertEqual(Pago.objects.filter(pedido=self.pedido).count(), 1)
 
+    def _crear_preferencia_mock(self, mock_sdk_fn, pref_id='pref-unica', url='https://sandbox.mp/unica'):
+        mock_sdk = MagicMock()
+        mock_sdk_fn.return_value = mock_sdk
+        mock_sdk.preference.return_value.create.return_value = {
+            'status': 201,
+            'response': {
+                'id': pref_id,
+                'sandbox_init_point': url,
+            },
+        }
+        return mock_sdk
+
+    def _mock_payment_get(self, mock_sdk, status, payment_id, preference_id):
+        mock_sdk.payment.return_value.get.return_value = {
+            'status': 200,
+            'response': {
+                'status': status,
+                'external_reference': self.pedido.numero,
+                'id': payment_id,
+                'preference_id': preference_id,
+                'transaction_amount': 100,
+            },
+        }
+
+    def _assert_reusa_tras_webhook(self, mock_sdk, pago, url, payment_id, pref_id):
+        """Pagar de nuevo no debe abrir otra preference cobrable en MP."""
+        pago.refresh_from_db()
+        self.assertEqual(pago.raw_payload.get('id'), payment_id)
+        self.assertNotIn('sandbox_init_point', pago.raw_payload)
+        self.assertEqual(pago.raw_payload.get('_mp_preference_id'), pref_id)
+        self.assertEqual(pago.raw_payload.get('_mp_sandbox_init_point'), url)
+        self.assertEqual(pago.id_externo, str(payment_id))
+
+        request = self.factory.get('/')
+        pago2, url2 = crear_preferencia_mp(request, self.pedido)
+        self.assertEqual(pago2.pk, pago.pk)
+        self.assertEqual(url2, url)
+        self.assertEqual(mock_sdk.preference.return_value.create.call_count, 1)
+        self.assertEqual(Pago.objects.filter(pedido=self.pedido).count(), 1)
+
+    @patch('pagos.services._sdk')
+    def test_webhook_pendiente_reusa_la_misma_preferencia(self, mock_sdk_fn):
+        """pending pisa raw_payload; Pagar otra vez debe reusar el init_point."""
+        url = 'https://sandbox.mp/unica'
+        pref_id = 'pref-unica'
+        mock_sdk = self._crear_preferencia_mock(mock_sdk_fn, pref_id, url)
+        request = self.factory.get('/')
+        pago, init_point = crear_preferencia_mp(request, self.pedido)
+        self.assertEqual(init_point, url)
+        self.assertEqual(pago.raw_payload.get('_mp_preference_id'), pref_id)
+        self.assertEqual(pago.raw_payload.get('_mp_sandbox_init_point'), url)
+
+        self._mock_payment_get(mock_sdk, 'pending', 9001, pref_id)
+        procesar_notificacion_mp('9001')
+        self._assert_reusa_tras_webhook(mock_sdk, pago, url, 9001, pref_id)
+
+    @patch('pagos.services._sdk')
+    def test_webhook_in_process_reusa_la_misma_preferencia(self, mock_sdk_fn):
+        url = 'https://sandbox.mp/unica'
+        pref_id = 'pref-unica'
+        mock_sdk = self._crear_preferencia_mock(mock_sdk_fn, pref_id, url)
+        request = self.factory.get('/')
+        pago, _ = crear_preferencia_mp(request, self.pedido)
+
+        self._mock_payment_get(mock_sdk, 'in_process', 9002, pref_id)
+        procesar_notificacion_mp('9002')
+        self._assert_reusa_tras_webhook(mock_sdk, pago, url, 9002, pref_id)
+
+    @patch('pagos.services._sdk')
+    def test_webhook_rechazado_reusa_la_misma_preferencia(self, mock_sdk_fn):
+        """rejected también pisa el payload; no crear un 2º Checkout Pro vivo."""
+        url = 'https://sandbox.mp/unica'
+        pref_id = 'pref-unica'
+        mock_sdk = self._crear_preferencia_mock(mock_sdk_fn, pref_id, url)
+        request = self.factory.get('/')
+        pago, _ = crear_preferencia_mp(request, self.pedido)
+
+        self._mock_payment_get(mock_sdk, 'rejected', 9003, pref_id)
+        procesar_notificacion_mp('9003')
+        pago.refresh_from_db()
+        self.assertEqual(pago.estado, Pago.Estado.RECHAZADO)
+        self._assert_reusa_tras_webhook(mock_sdk, pago, url, 9003, pref_id)
+
     @patch('pagos.services._sdk')
     def test_rechazado_no_pisa_pago_ya_aprobado(self, mock_sdk_fn):
         """Misma preference: approved + rejected tardío no degrada el cobro."""

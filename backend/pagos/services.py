@@ -66,12 +66,69 @@ def _urls_publicas_https(base: str) -> bool:
     return base.startswith('https://')
 
 
+# El webhook pisa raw_payload con el payment (sin init_point). Guardamos la
+# preference acá para reusar el mismo Checkout Pro si el cliente vuelve a Pagar.
+CLAVE_MP_PREF_ID = '_mp_preference_id'
+CLAVE_MP_INIT_POINT = '_mp_init_point'
+CLAVE_MP_SANDBOX_INIT_POINT = '_mp_sandbox_init_point'
+
+
+def _checkout_mp_guardado(payload: dict[str, Any]) -> dict[str, str]:
+    """Id y URLs de Checkout Pro (claves durables o payload legacy de preference)."""
+    claves: dict[str, str] = {}
+    pref_id = payload.get(CLAVE_MP_PREF_ID)
+    init_point = payload.get(CLAVE_MP_INIT_POINT) or payload.get('init_point') or ''
+    sandbox = (
+        payload.get(CLAVE_MP_SANDBOX_INIT_POINT)
+        or payload.get('sandbox_init_point')
+        or ''
+    )
+    if init_point:
+        claves[CLAVE_MP_INIT_POINT] = str(init_point)
+    if sandbox:
+        claves[CLAVE_MP_SANDBOX_INIT_POINT] = str(sandbox)
+    if pref_id:
+        claves[CLAVE_MP_PREF_ID] = str(pref_id)
+    elif (init_point or sandbox) and payload.get('id'):
+        # Preference original: id + init_point. Un payment también tiene id,
+        # pero no trae URL de checkout: no lo tomamos como preference_id.
+        claves[CLAVE_MP_PREF_ID] = str(payload['id'])
+    return claves
+
+
+def _payload_preferencia_mp(data: dict[str, Any]) -> dict[str, Any]:
+    """Respuesta de preference.create + claves que sobreviven al webhook."""
+    payload = dict(data)
+    payload.update(_checkout_mp_guardado(data))
+    if data.get('id') is not None:
+        payload[CLAVE_MP_PREF_ID] = str(data['id'])
+    return payload
+
+
+def _payload_webhook_mp(pago: Pago, data: dict[str, Any]) -> dict[str, Any]:
+    """Payload del payment sin borrar URL/id de la preferencia ya creada."""
+    payload = dict(data)
+    anterior = pago.raw_payload if isinstance(pago.raw_payload, dict) else {}
+    payload.update(_checkout_mp_guardado(anterior))
+    return payload
+
+
 def _init_point_mp(data: dict[str, Any]) -> str:
-    """Sandbox usa sandbox_init_point; producción usa init_point."""
+    """Sandbox usa sandbox_init_point; producción usa init_point.
+
+    Tras un webhook el payment no trae init_point: leemos _mp_* (o el
+    payload legacy de la preference si todavía está).
+    """
     token = getattr(settings, 'MERCADOPAGO_ACCESS_TOKEN', '')
+    sandbox = (
+        data.get(CLAVE_MP_SANDBOX_INIT_POINT)
+        or data.get('sandbox_init_point')
+        or ''
+    )
+    prod = data.get(CLAVE_MP_INIT_POINT) or data.get('init_point') or ''
     if token.startswith('TEST-'):
-        return data.get('sandbox_init_point') or data.get('init_point', '')
-    return data.get('init_point') or data.get('sandbox_init_point', '')
+        return sandbox or prod
+    return prod or sandbox
 
 
 def _mensaje_error_mp(response: dict) -> str:
@@ -103,7 +160,8 @@ def _preferencia_reutilizable(pedido: Pedido) -> tuple[Pago, str] | None:
         .filter(
             pedido=pedido,
             medio__in=MEDIOS_MP,
-            estado=Pago.Estado.PENDIENTE,
+            # rejected no cierra la preference en MP: reusar evita un 2º checkout.
+            estado__in=(Pago.Estado.PENDIENTE, Pago.Estado.RECHAZADO),
         )
         .exclude(id_externo='')
         .order_by('-created_at')
@@ -194,10 +252,10 @@ def crear_preferencia_mp(request, pedido: Pedido) -> tuple[Pago, str]:
         raise PagoError(_mensaje_error_mp(response))
 
     pago.id_externo = str(data['id'])
-    pago.raw_payload = data
+    pago.raw_payload = _payload_preferencia_mp(data)
     pago.save(update_fields=['id_externo', 'raw_payload'])
 
-    init_point = _init_point_mp(data)
+    init_point = _init_point_mp(pago.raw_payload)
     if not init_point:
         raise PagoError('Mercado Pago no devolvió URL de pago.')
 
@@ -265,7 +323,7 @@ def _buscar_pago_mp(pedido: Pedido, payment_id: str, data: dict[str, Any]) -> Pa
 
 def _persistir_cobro_duplicado(pago: Pago, data: dict[str, Any]) -> None:
     """Segundo payment_id approved sobre un pedido ya confirmado: plata extra."""
-    payload = dict(data)
+    payload = _payload_webhook_mp(pago, data)
     payload['_cobro_duplicado'] = True
     pago.raw_payload = payload
     campos = ['raw_payload', 'id_externo']
@@ -287,7 +345,7 @@ def _persistir_webhook_tarde(
     Pago APROBADO para que staff lo vea, con _webhook_tarde para no confundirlo
     con una confirmación exitosa.
     """
-    payload = dict(data)
+    payload = _payload_webhook_mp(pago, data)
     payload['_webhook_tarde'] = True
     payload['_pedido_estado'] = estado_pedido
     pago.raw_payload = payload
@@ -356,7 +414,7 @@ def procesar_notificacion_mp(payment_id: str) -> None:
     )
 
     if estado_mp == 'approved':
-        pago.raw_payload = data
+        pago.raw_payload = _payload_webhook_mp(pago, data)
         pago.id_externo = payment_id_str
         # Reintento después de confirmar: sincronizar Pago y no volver a confirmar.
         if pedido.estado == Pedido.Estado.CONFIRMADO:
@@ -432,14 +490,14 @@ def procesar_notificacion_mp(payment_id: str) -> None:
                 pedido.numero,
             )
             return
-        pago.raw_payload = data
+        pago.raw_payload = _payload_webhook_mp(pago, data)
         pago.id_externo = payment_id_str
         pago.estado = Pago.Estado.RECHAZADO
         pago.save(update_fields=['estado', 'raw_payload', 'id_externo'])
     else:
         if pago.estado == Pago.Estado.APROBADO:
             return
-        pago.raw_payload = data
+        pago.raw_payload = _payload_webhook_mp(pago, data)
         pago.id_externo = payment_id_str
         pago.save(update_fields=['raw_payload', 'id_externo'])
 
