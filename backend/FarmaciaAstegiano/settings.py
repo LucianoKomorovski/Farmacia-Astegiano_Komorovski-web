@@ -13,6 +13,8 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 from pathlib import Path
 import os
 from decimal import Decimal
+
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -20,9 +22,40 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # le decimos a dotenv que cargue las variables del archivo .env:
 load_dotenv(os.path.join(BASE_DIR, '.env'))
- 
-# extraemos los valores de forma segura:
-SECRET_KEY = os.environ.get('SECRET_KEY')
+
+# Valores que a veces quedan copiados del .env.example o de tutoriales.
+# Si alguien arranca con uno de estos, Django aborta: no hay clave secreta real.
+_SECRET_KEY_PLACEHOLDERS = frozenset(
+    {
+        'cambia-esto-por-una-clave-secreta',
+        'changeme',
+        'change-me',
+        'change_me',
+        'secret',
+        'secret_key',
+        'your-secret-key',
+        'your-secret-key-here',
+        'insecure',
+        'placeholder',
+        '<clave-larga-aleatoria>',
+    }
+)
+
+
+def _resolve_secret_key(raw: str | None) -> str:
+    """Fail-fast si SECRET_KEY falta, está vacía o es un placeholder obvio."""
+    key = (raw or '').strip()
+    if not key or key.lower() in _SECRET_KEY_PLACEHOLDERS:
+        raise ImproperlyConfigured(
+            'SECRET_KEY falta, está vacía o es un placeholder. '
+            'Generá una clave propia con: '
+            'python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())" '
+            'y definila en backend/.env (ver backend/.env.example).'
+        )
+    return key
+
+
+SECRET_KEY = _resolve_secret_key(os.environ.get('SECRET_KEY'))
 
 #Convertimos el string true o false del env a un booleano real de python:
 DEBUG = os.environ.get('DEBUG') == 'True'
