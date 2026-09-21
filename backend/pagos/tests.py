@@ -1,5 +1,7 @@
 """Tests de pagos con mock de Mercado Pago."""
 
+import hashlib
+import hmac
 from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
@@ -288,6 +290,131 @@ class MercadoPagoMockTests(TestCase):
             self.pedido.eventos.filter(estado_nuevo=Pedido.Estado.CANCELADO).count(),
             1,
         )
+
+    @patch('pagos.services._sdk')
+    def test_reintentar_preferencia_reusa_la_misma(self, mock_sdk_fn):
+        """Dos clics en Pagar no deben abrir dos Checkout Pro cobrables."""
+        mock_sdk = MagicMock()
+        mock_sdk_fn.return_value = mock_sdk
+        mock_sdk.preference.return_value.create.return_value = {
+            'status': 201,
+            'response': {
+                'id': 'pref-unica',
+                'sandbox_init_point': 'https://sandbox.mp/unica',
+            },
+        }
+        request = self.factory.get('/')
+
+        pago1, url1 = crear_preferencia_mp(request, self.pedido)
+        pago2, url2 = crear_preferencia_mp(request, self.pedido)
+
+        self.assertEqual(pago1.pk, pago2.pk)
+        self.assertEqual(url1, url2)
+        self.assertEqual(url1, 'https://sandbox.mp/unica')
+        self.assertEqual(mock_sdk.preference.return_value.create.call_count, 1)
+        self.assertEqual(Pago.objects.filter(pedido=self.pedido).count(), 1)
+
+    @patch('pagos.services._sdk')
+    def test_rechazado_no_pisa_pago_ya_aprobado(self, mock_sdk_fn):
+        """Misma preference: approved + rejected tardío no degrada el cobro."""
+        self._reserva_vigente()
+        Pago.objects.create(
+            pedido=self.pedido,
+            medio=Pago.Medio.MERCADOPAGO,
+            estado=Pago.Estado.PENDIENTE,
+            monto=self.pedido.total,
+            id_externo='pref-1',
+        )
+        self._mock_pago_aprobado(mock_sdk_fn, payment_id=222, preference_id='pref-1')
+        procesar_notificacion_mp('222')
+
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.CONFIRMADO)
+
+        mock_sdk_fn.return_value.payment.return_value.get.return_value = {
+            'status': 200,
+            'response': {
+                'status': 'rejected',
+                'external_reference': self.pedido.numero,
+                'id': 111,
+                'preference_id': 'pref-1',
+                'transaction_amount': 100,
+            },
+        }
+        procesar_notificacion_mp('111')
+
+        self.assertEqual(
+            Pago.objects.filter(pedido=self.pedido, estado=Pago.Estado.APROBADO).count(),
+            1,
+        )
+        pago = Pago.objects.get(pedido=self.pedido, estado=Pago.Estado.APROBADO)
+        self.assertEqual(pago.id_externo, '222')
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.CONFIRMADO)
+
+    @patch('pagos.services._sdk')
+    def test_segundo_payment_approved_en_confirmado_se_flaggea(self, mock_sdk_fn):
+        """Dos preferences cobradas: el pedido no se reconfirma; se marca duplicado."""
+        self._reserva_vigente()
+        Pago.objects.create(
+            pedido=self.pedido,
+            medio=Pago.Medio.MERCADOPAGO,
+            estado=Pago.Estado.PENDIENTE,
+            monto=self.pedido.total,
+            id_externo='pref-a',
+        )
+        Pago.objects.create(
+            pedido=self.pedido,
+            medio=Pago.Medio.MERCADOPAGO,
+            estado=Pago.Estado.PENDIENTE,
+            monto=self.pedido.total,
+            id_externo='pref-b',
+        )
+        self._mock_pago_aprobado(mock_sdk_fn, payment_id=1001, preference_id='pref-a')
+        procesar_notificacion_mp('1001')
+
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.CONFIRMADO)
+        stock = StockWeb.objects.get(producto=self.producto)
+        self.assertEqual(stock.cantidad, 9)
+
+        self._mock_pago_aprobado(mock_sdk_fn, payment_id=1002, preference_id='pref-b')
+        procesar_notificacion_mp('1002')
+
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.CONFIRMADO)
+        stock.refresh_from_db()
+        self.assertEqual(stock.cantidad, 9)
+        self.assertEqual(
+            Pago.objects.filter(pedido=self.pedido, estado=Pago.Estado.APROBADO).count(),
+            2,
+        )
+        duplicado = Pago.objects.get(pedido=self.pedido, id_externo='1002')
+        self.assertTrue(duplicado.raw_payload.get('_cobro_duplicado'))
+        original = Pago.objects.get(pedido=self.pedido, id_externo='1001')
+        self.assertFalse(original.raw_payload.get('_cobro_duplicado'))
+
+    @override_settings(MERCADOPAGO_WEBHOOK_SECRET='s3cret', DEBUG=False)
+    def test_webhook_hmac_acepta_firma_valida_con_espacios(self):
+        data_id = '12345'
+        request_id = 'req-1'
+        ts = '1704908010'
+        manifest = f'id:{data_id};request-id:{request_id};ts:{ts};'
+        digest = hmac.new(b's3cret', manifest.encode(), hashlib.sha256).hexdigest()
+        request = MagicMock()
+        request.headers = {
+            'x-signature': f'ts={ts}, v1={digest}',
+            'x-request-id': request_id,
+        }
+        request.GET = {'data.id': data_id}
+        self.assertTrue(validar_firma_webhook(request))
+
+    @override_settings(MERCADOPAGO_WEBHOOK_SECRET='s3cret', DEBUG=False)
+    def test_webhook_hmac_sin_firma_devuelve_false(self):
+        request = MagicMock()
+        request.headers = {}
+        request.GET = {}
+        self.assertFalse(validar_firma_webhook(request))
 
     @patch('pagos.services._sdk')
     def test_webhook_http_reserva_expirada_devuelve_200(self, mock_sdk_fn):
