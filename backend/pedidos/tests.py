@@ -397,11 +397,114 @@ class CheckoutVistaTests(TestCase):
         )
 
 
+class CrearPedidoEnvioCupoTests(TestCase):
+    """El servicio revalida franja, fecha y cupo: el form no alcanza."""
+
+    def setUp(self):
+        cat = Categoria.objects.create(nombre='Envio', slug='envio-cupo')
+        self.producto = Producto.objects.create(
+            categoria=cat,
+            nombre='Crema',
+            slug='crema-envio',
+            sku='CRE-ENV',
+            descripcion='',
+            tipo=Producto.Tipo.INMEDIATO,
+            precio=Decimal('100.00'),
+            activo=True,
+        )
+        StockWeb.objects.create(producto=self.producto, cantidad=10)
+        self.franja = FranjaEnvio.objects.create(
+            nombre='Mañana',
+            hora_desde='09:00',
+            hora_hasta='13:00',
+            cupo_max=1,
+        )
+        self.fecha = timezone.localdate()
+        self.carrito = Carrito.objects.create(
+            session_key='envio-cupo',
+            modo=Carrito.Modo.INMEDIATO,
+        )
+        LineaCarrito.objects.create(
+            carrito=self.carrito,
+            producto=self.producto,
+            cantidad=1,
+            precio_unitario=Decimal('100.00'),
+        )
+
+    def _datos_envio(self, **extra) -> dict:
+        datos = _datos_checkout(
+            modalidad_entrega=Pedido.ModalidadEntrega.ENVIO,
+            direccion_envio='Calle Falsa 123',
+            franja_envio=self.franja,
+            fecha_entrega=self.fecha,
+        )
+        datos.update(extra)
+        return datos
+
+    def test_envio_sin_franja_ni_fecha_rechaza(self):
+        incompletos = (
+            self._datos_envio(franja_envio=None, fecha_entrega=None),
+            self._datos_envio(franja_envio=None),
+            self._datos_envio(fecha_entrega=None),
+        )
+        for datos in incompletos:
+            with self.assertRaises(PedidoError):
+                crear_pedido_desde_carrito(_request_anonimo(), self.carrito, datos)
+        self.assertEqual(Pedido.objects.count(), 0)
+
+    def test_envio_fecha_pasada_rechaza(self):
+        with self.assertRaises(PedidoError):
+            crear_pedido_desde_carrito(
+                _request_anonimo(),
+                self.carrito,
+                self._datos_envio(fecha_entrega=self.fecha - timedelta(days=1)),
+            )
+        self.assertEqual(Pedido.objects.count(), 0)
+
+    def test_envio_sin_cupo_rechaza(self):
+        Pedido.objects.create(
+            numero='FA-2026-000040',
+            nombre_cliente='B',
+            email='b@t.com',
+            telefono='1',
+            estado=Pedido.Estado.CONFIRMADO,
+            modo=Pedido.Modo.INMEDIATO,
+            modalidad_entrega=Pedido.ModalidadEntrega.ENVIO,
+            franja_envio=self.franja,
+            fecha_entrega=self.fecha,
+            medio_pago=Pedido.MedioPago.MERCADOPAGO,
+            subtotal=Decimal('50'),
+            total=Decimal('50'),
+        )
+        with self.assertRaises(PedidoError):
+            crear_pedido_desde_carrito(
+                _request_anonimo(),
+                self.carrito,
+                self._datos_envio(),
+            )
+        self.assertEqual(Pedido.objects.count(), 1)
+
+    def test_envio_con_cupo_crea_pedido(self):
+        pedido = crear_pedido_desde_carrito(
+            _request_anonimo(),
+            self.carrito,
+            self._datos_envio(),
+        )
+        self.assertEqual(pedido.modalidad_entrega, Pedido.ModalidadEntrega.ENVIO)
+        self.assertEqual(pedido.franja_envio_id, self.franja.pk)
+        self.assertEqual(pedido.fecha_entrega, self.fecha)
+        self.assertEqual(Pedido.objects.count(), 1)
+
+
 class PedidoAdminEstadoTests(TestCase):
     def test_estado_es_readonly(self):
         self.assertIn('estado', PedidoAdmin.readonly_fields)
 
-    def test_formulario_admin_no_edita_estado(self):
+    def test_modo_y_medio_pago_son_readonly(self):
+        self.assertIn('modo', PedidoAdmin.readonly_fields)
+        self.assertIn('medio_pago', PedidoAdmin.readonly_fields)
+
+    def test_formulario_admin_no_edita_estado_modo_ni_medio_pago(self):
         admin_user = User.objects.create_superuser(
             'duenio', 'd@test.com', 'farmacia-2026-segura',
         )
@@ -418,3 +521,5 @@ class PedidoAdminEstadoTests(TestCase):
         resp = self.client.get(reverse('admin:pedidos_pedido_change', args=[pedido.pk]))
         self.assertEqual(resp.status_code, 200)
         self.assertNotContains(resp, 'name="estado"')
+        self.assertNotContains(resp, 'name="modo"')
+        self.assertNotContains(resp, 'name="medio_pago"')

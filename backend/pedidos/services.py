@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 
 from django.conf import settings
@@ -16,7 +17,7 @@ from inventario.services import (
     reservar_stock_para_pedido,
     ttl_reserva,
 )
-from .models import EventoPedido, LineaPedido, Pedido, generar_numero_pedido
+from .models import EventoPedido, FranjaEnvio, LineaPedido, Pedido, generar_numero_pedido
 
 
 class PedidoError(Exception):
@@ -73,6 +74,34 @@ def _vaciar_carrito(carrito: Carrito) -> None:
     carrito.save(update_fields=['modo', 'updated_at'])
 
 
+def _validar_envio_con_cupo(
+    franja: FranjaEnvio | None,
+    fecha: date | None,
+) -> tuple[FranjaEnvio, date]:
+    """Revalida franja, fecha y cupo justo antes de crear un envío.
+
+    El formulario ya lo chequea, pero dos checkouts a la vez pueden pasar
+    tiene_cupo los dos. Bloquear la fila de la franja serializa el conteo.
+    """
+    if franja is None or fecha is None:
+        raise PedidoError('Elegí una franja horaria y una fecha de envío.')
+
+    if fecha < timezone.localdate():
+        raise PedidoError('La fecha no puede ser anterior a hoy.')
+
+    try:
+        # Lock de la franja: el segundo checkout espera y vuelve a contar.
+        franja_bloqueada = FranjaEnvio.objects.select_for_update().get(pk=franja.pk)
+    except FranjaEnvio.DoesNotExist as exc:
+        raise PedidoError('La franja de envío elegida ya no está disponible.') from exc
+
+    if not franja_bloqueada.tiene_cupo(fecha):
+        raise PedidoError(
+            f'No hay cupo disponible en "{franja_bloqueada.nombre}" para esa fecha.'
+        )
+    return franja_bloqueada, fecha
+
+
 @transaction.atomic
 def crear_pedido_desde_carrito(
     request: HttpRequest,
@@ -112,6 +141,11 @@ def crear_pedido_desde_carrito(
     if not es_encargue:
         reservado_hasta = timezone.now() + ttl_reserva()
 
+    franja_envio = datos.get('franja_envio')
+    fecha_entrega = datos.get('fecha_entrega')
+    if modalidad == Pedido.ModalidadEntrega.ENVIO:
+        franja_envio, fecha_entrega = _validar_envio_con_cupo(franja_envio, fecha_entrega)
+
     pedido = Pedido.objects.create(
         numero=generar_numero_pedido(),
         usuario=request.user if request.user.is_authenticated else None,
@@ -122,8 +156,8 @@ def crear_pedido_desde_carrito(
         modo=carrito.modo,
         modalidad_entrega=modalidad,
         sucursal_retiro=datos.get('sucursal_retiro'),
-        franja_envio=datos.get('franja_envio'),
-        fecha_entrega=datos.get('fecha_entrega'),
+        franja_envio=franja_envio,
+        fecha_entrega=fecha_entrega,
         direccion_envio=datos.get('direccion_envio', '').strip(),
         medio_pago=medio_pago,
         notas=datos.get('notas', '').strip(),
