@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import mercadopago
@@ -334,6 +334,66 @@ def _persistir_cobro_duplicado(pago: Pago, data: dict[str, Any]) -> None:
     pago.save(update_fields=campos)
 
 
+def _monto_notificado_mp(data: dict[str, Any]) -> Decimal | None:
+    """Monto que Mercado Pago dice haber cobrado, en pesos con 2 decimales.
+
+    None si el campo no viene o no es un número: en ese caso no hay que
+    asumir el total del pedido (eso confirmaría sin saber cuánto entró).
+    """
+    raw = data.get('transaction_amount')
+    if raw is None or raw is False or raw == '':
+        return None
+    try:
+        return Decimal(str(raw)).quantize(Decimal('0.01'))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _monto_coincide_con_pedido(pedido: Pedido, data: dict[str, Any]) -> bool:
+    """True solo si MP cobró exactamente pedido.total.
+
+    Checkout Pro arma la preferencia con ese total, pero el webhook no puede
+    fiarse del status approved: un payment con el external_reference del
+    pedido y un transaction_amount menor confirmaría la venta igual.
+    """
+    monto = _monto_notificado_mp(data)
+    if monto is None:
+        return False
+    return monto == Decimal(pedido.total).quantize(Decimal('0.01'))
+
+
+def _persistir_monto_distinto(
+    pago: Pago,
+    data: dict[str, Any],
+    total_pedido: Decimal,
+) -> None:
+    """Registra un approved que no coincide con el total, sin confirmar.
+
+    La plata puede haber entrado por un monto distinto. Staff lo ve para
+    devolverla. No cancelamos el pedido: el cobro por el total correcto
+    todavía puede llegar, y un pago chico no tiene que anular la compra.
+    """
+    payload = _payload_webhook_mp(pago, data)
+    payload['_monto_distinto'] = True
+    payload['_monto_pedido'] = str(Decimal(total_pedido).quantize(Decimal('0.01')))
+    monto = _monto_notificado_mp(data)
+    if monto is not None:
+        payload['_monto_mp'] = str(monto)
+    pago.raw_payload = payload
+    campos = ['raw_payload', 'id_externo']
+    # El registro tiene que mostrar lo que MP cobró, no el total del pedido.
+    if monto is not None and pago.monto != monto:
+        pago.monto = monto
+        campos.append('monto')
+    # APROBADO = "MP acreditó este payment", no "el pedido quedó pago".
+    # El flag _monto_distinto separa las dos cosas. Idempotente en reintentos.
+    if pago.estado != Pago.Estado.APROBADO:
+        pago.estado = Pago.Estado.APROBADO
+        pago.confirmado_en = timezone.now()
+        campos.extend(['estado', 'confirmado_en'])
+    pago.save(update_fields=campos)
+
+
 def _persistir_webhook_tarde(
     pago: Pago,
     data: dict[str, Any],
@@ -401,10 +461,13 @@ def procesar_notificacion_mp(payment_id: str) -> None:
     payment_id_str = str(data.get('id', payment_id))
     pago = _buscar_pago_mp(pedido, payment_id, data)
     if pago is None:
+        # Sin transaction_amount no inventamos el total: un approved sin monto
+        # no puede quedar anotado como si se hubiera cobrado el pedido entero.
+        monto_inicial = _monto_notificado_mp(data)
         pago = Pago.objects.create(
             pedido=pedido,
             medio=pedido.medio_pago,
-            monto=Decimal(str(data.get('transaction_amount', pedido.total))),
+            monto=monto_inicial if monto_inicial is not None else Decimal('0.00'),
             id_externo=payment_id_str,
         )
 
@@ -449,6 +512,20 @@ def procesar_notificacion_mp(payment_id: str) -> None:
                 payment_id_str,
             )
             _persistir_webhook_tarde(pago, data, pedido.estado)
+            return
+
+        # Approved no alcanza: el monto tiene que ser el total del pedido.
+        # Si no, no confirmamos (ni 500: MP reintentaría para siempre).
+        if not _monto_coincide_con_pedido(pedido, data):
+            logger.warning(
+                'Webhook MP monto distinto: pedido %s total=%s payment_id=%s '
+                'transaction_amount=%s. No se confirma.',
+                pedido.numero,
+                pedido.total,
+                payment_id_str,
+                data.get('transaction_amount'),
+            )
+            _persistir_monto_distinto(pago, data, pedido.total)
             return
 
         try:
