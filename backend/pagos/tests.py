@@ -358,6 +358,47 @@ class MercadoPagoMockTests(TestCase):
         self.assertFalse(duplicado.raw_payload.get('_monto_distinto'))
 
     @patch('pagos.services._sdk')
+    def test_reintento_del_cobro_real_no_hereda_duplicado_del_segundo_total(
+        self, mock_sdk_fn,
+    ):
+        """Un segundo total marcado extra no es el cobro que confirmó.
+
+        MP reintenta el payment_id original después de que el segundo cargo
+        por el total quedó APROBADO con `_cobro_duplicado`. Esa fila no
+        cerró el pedido: si la contáramos, el cargo real también quedaría
+        duplicado y staff podría devolverlo.
+        """
+        self._reserva_vigente()
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4801, monto=100)
+        procesar_notificacion_mp('4801')
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4802, monto=100)
+        procesar_notificacion_mp('4802')
+
+        duplicado = Pago.objects.get(pedido=self.pedido, id_externo='4802')
+        self.assertTrue(duplicado.raw_payload.get('_cobro_duplicado'))
+
+        # Reintento del payment_id que sí confirmó el pedido.
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4801, monto=100)
+        procesar_notificacion_mp('4801')
+        # Y el reintento del extra tiene que seguir marcado.
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4802, monto=100)
+        procesar_notificacion_mp('4802')
+
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.CONFIRMADO)
+        self.assertEqual(StockWeb.objects.get(producto=self.producto).cantidad, 9)
+        self.assertEqual(Pago.objects.filter(pedido=self.pedido).count(), 2)
+
+        original = Pago.objects.get(pedido=self.pedido, id_externo='4801')
+        self.assertEqual(original.estado, Pago.Estado.APROBADO)
+        self.assertEqual(original.monto, Decimal('100.00'))
+        self.assertFalse(original.raw_payload.get('_cobro_duplicado'))
+        self.assertFalse(original.raw_payload.get('_monto_distinto'))
+        duplicado.refresh_from_db()
+        self.assertTrue(duplicado.raw_payload.get('_cobro_duplicado'))
+        self.assertFalse(duplicado.raw_payload.get('_monto_distinto'))
+
+    @patch('pagos.services._sdk')
     def test_payment_get_no_abre_la_transaccion_de_escritura(self, mock_sdk_fn):
         """IMMEDIATE lockea al entrar a atomic: el GET de MP tiene que ir antes."""
         self._reserva_vigente()
