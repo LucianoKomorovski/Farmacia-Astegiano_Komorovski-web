@@ -173,6 +173,9 @@ DATABASES = {
         # diferido, dos checkouts leen el stock antes de escribir y pueden
         # vender la misma unidad. IMMEDIATE toma el lock de escritura al
         # abrir la transacción: el segundo espera y relee.
+        # El lock se toma apenas entra atomic(), antes de cualquier query.
+        # Por eso el webhook consulta Mercado Pago (payment.get) AFUERA de
+        # la transacción: un HTTP lento no puede frenar a los demás writers.
         'OPTIONS': {
             'transaction_mode': 'IMMEDIATE',
             'timeout': 20,

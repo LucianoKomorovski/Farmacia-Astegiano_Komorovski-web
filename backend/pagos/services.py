@@ -334,6 +334,30 @@ def _persistir_cobro_duplicado(pago: Pago, data: dict[str, Any]) -> None:
     pago.save(update_fields=campos)
 
 
+def _es_monto_distinto(pago: Pago) -> bool:
+    """True si este APROBADO no cerró el pedido (MP cobró otro monto)."""
+    payload = pago.raw_payload if isinstance(pago.raw_payload, dict) else {}
+    return bool(payload.get('_monto_distinto'))
+
+
+def _hay_otro_cobro_que_confirma(pedido: Pedido, pago: Pago) -> bool:
+    """Hay otro APROBADO que sí puede ser el cobro que confirmó el pedido.
+
+    Un approved corto también queda APROBADO, con `_monto_distinto`, y el
+    pedido sigue pagable: no cancela ni confirma stock. Si lo contáramos
+    acá, el reintento normal de Mercado Pago del cobro por el total vería
+    esa fila y marcaría al pago legítimo como `_cobro_duplicado`. Staff
+    podría devolver la plata del cargo real.
+    """
+    # SQLite de este proyecto no soporta el lookup JSON `contains`.
+    # Son pocos pagos por pedido: leemos las filas y saltamos _monto_distinto.
+    otros = (
+        Pago.objects.filter(pedido=pedido, estado=Pago.Estado.APROBADO)
+        .exclude(pk=pago.pk)
+    )
+    return any(not _es_monto_distinto(otro) for otro in otros)
+
+
 def _monto_notificado_mp(data: dict[str, Any]) -> Decimal | None:
     """Monto que Mercado Pago dice haber cobrado, en pesos con 2 decimales.
 
@@ -386,7 +410,9 @@ def _persistir_monto_distinto(
         pago.monto = monto
         campos.append('monto')
     # APROBADO = "MP acreditó este payment", no "el pedido quedó pago".
-    # El flag _monto_distinto separa las dos cosas. Idempotente en reintentos.
+    # El flag _monto_distinto separa las dos cosas: la detección de cobro
+    # duplicado ignora estas filas (ver _hay_otro_cobro_que_confirma).
+    # Idempotente en reintentos. No cancela el pedido ni confirma stock.
     if pago.estado != Pago.Estado.APROBADO:
         pago.estado = Pago.Estado.APROBADO
         pago.confirmado_en = timezone.now()
@@ -436,9 +462,16 @@ def _cancelar_si_sigue_pagable_online(pedido: Pedido, motivo: str) -> None:
         )
 
 
-@transaction.atomic
 def procesar_notificacion_mp(payment_id: str) -> None:
-    """Consulta el pago en MP y actualiza pedido si fue aprobado."""
+    """Consulta el pago en MP y actualiza el pedido si fue aprobado.
+
+    payment.get va AFUERA de atomic(). Con transaction_mode IMMEDIATE,
+    SQLite toma el lock de escritura apenas se abre la transacción, antes
+    de cualquier query. Si el HTTP quedara adentro, un Mercado Pago lento
+    frenaría checkouts, vencimientos de stock y otros webhooks hasta el
+    timeout (`database is locked`). La firma HMAC se valida en la vista,
+    antes de llegar acá.
+    """
     sdk = _sdk()
     response = sdk.payment().get(payment_id)
     data = response.get('response', {})
@@ -447,6 +480,16 @@ def procesar_notificacion_mp(payment_id: str) -> None:
         logger.warning('MP payment get failed: %s', response)
         return
 
+    # Sin pedido no hay nada que escribir: no abrimos el lock.
+    if not data.get('external_reference'):
+        return
+
+    _aplicar_notificacion_mp(payment_id, data)
+
+
+@transaction.atomic
+def _aplicar_notificacion_mp(payment_id: str, data: dict[str, Any]) -> None:
+    """Persiste un payment ya leído de MP. Corre dentro de la transacción."""
     external_ref = data.get('external_reference', '')
     if not external_ref:
         return
@@ -481,12 +524,22 @@ def procesar_notificacion_mp(payment_id: str) -> None:
         pago.id_externo = payment_id_str
         # Reintento después de confirmar: sincronizar Pago y no volver a confirmar.
         if pedido.estado == Pedido.Estado.CONFIRMADO:
-            hay_otro_aprobado = (
-                Pago.objects.filter(pedido=pedido, estado=Pago.Estado.APROBADO)
-                .exclude(pk=pago.pk)
-                .exists()
-            )
-            if hay_otro_aprobado:
+            # Un approved que no es el total no confirmó este pedido. Si lo
+            # marcáramos _cobro_duplicado, se le iría el flag _monto_distinto
+            # y el reintento del cobro real lo vería como un segundo cargo.
+            if not _monto_coincide_con_pedido(pedido, data):
+                logger.warning(
+                    'Webhook MP monto distinto sobre pedido confirmado: '
+                    'pedido %s total=%s payment_id=%s transaction_amount=%s. '
+                    'No se toca el cobro legítimo.',
+                    pedido.numero,
+                    pedido.total,
+                    payment_id_str,
+                    data.get('transaction_amount'),
+                )
+                _persistir_monto_distinto(pago, data, pedido.total)
+                return
+            if _hay_otro_cobro_que_confirma(pedido, pago):
                 logger.warning(
                     'Cobro duplicado MP: pedido %s ya confirmado (payment_id=%s).',
                     pedido.numero,

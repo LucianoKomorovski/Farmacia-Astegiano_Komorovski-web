@@ -7,6 +7,7 @@ from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.models import User
+from django.db import connection
 from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
 
@@ -286,6 +287,119 @@ class MercadoPagoMockTests(TestCase):
         self.assertTrue(chico.raw_payload.get('_monto_distinto'))
         bueno = Pago.objects.get(pedido=self.pedido, id_externo='4647')
         self.assertFalse(bueno.raw_payload.get('_monto_distinto'))
+
+    @patch('pagos.services._sdk')
+    def test_reintento_del_cobro_real_no_hereda_duplicado_del_monto_distinto(
+        self, mock_sdk_fn,
+    ):
+        """Un approved corto no puede marcar el reintento del total como extra.
+
+        MP reintenta el webhook del cobro legítimo después de confirmar.
+        La fila APROBADO con _monto_distinto no es ese cobro: el pedido
+        seguía pagable y el stock no se confirmó con ella.
+        """
+        self._reserva_vigente()
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4646, monto=10)
+        procesar_notificacion_mp('4646')
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.PENDIENTE_PAGO)
+        self.assertTrue(self.pedido.puede_pagar_online)
+
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4647, monto=100)
+        procesar_notificacion_mp('4647')
+        # Reintento del corto (sigue distinto) y del total (el que confirmó).
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4646, monto=10)
+        procesar_notificacion_mp('4646')
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4647, monto=100)
+        procesar_notificacion_mp('4647')
+
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.CONFIRMADO)
+        self.assertFalse(self.pedido.puede_pagar_online)
+        self.assertEqual(StockWeb.objects.get(producto=self.producto).cantidad, 9)
+        self.assertEqual(Pago.objects.filter(pedido=self.pedido).count(), 2)
+
+        chico = Pago.objects.get(pedido=self.pedido, id_externo='4646')
+        self.assertEqual(chico.estado, Pago.Estado.APROBADO)
+        self.assertEqual(chico.monto, Decimal('10.00'))
+        self.assertTrue(chico.raw_payload.get('_monto_distinto'))
+        self.assertFalse(chico.raw_payload.get('_cobro_duplicado'))
+
+        bueno = Pago.objects.get(pedido=self.pedido, id_externo='4647')
+        self.assertEqual(bueno.estado, Pago.Estado.APROBADO)
+        self.assertEqual(bueno.monto, Decimal('100.00'))
+        self.assertFalse(bueno.raw_payload.get('_monto_distinto'))
+        self.assertFalse(bueno.raw_payload.get('_cobro_duplicado'))
+
+    @patch('pagos.services._sdk')
+    def test_segundo_total_sigue_siendo_duplicado_con_monto_distinto_al_lado(
+        self, mock_sdk_fn,
+    ):
+        """Excluir el corto no esconde un segundo cobro por el total."""
+        self._reserva_vigente()
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4701, monto=10)
+        procesar_notificacion_mp('4701')
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4702, monto=100)
+        procesar_notificacion_mp('4702')
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4703, monto=100)
+        procesar_notificacion_mp('4703')
+
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.CONFIRMADO)
+        self.assertEqual(StockWeb.objects.get(producto=self.producto).cantidad, 9)
+
+        chico = Pago.objects.get(pedido=self.pedido, id_externo='4701')
+        self.assertTrue(chico.raw_payload.get('_monto_distinto'))
+        self.assertFalse(chico.raw_payload.get('_cobro_duplicado'))
+        original = Pago.objects.get(pedido=self.pedido, id_externo='4702')
+        self.assertFalse(original.raw_payload.get('_cobro_duplicado'))
+        duplicado = Pago.objects.get(pedido=self.pedido, id_externo='4703')
+        self.assertTrue(duplicado.raw_payload.get('_cobro_duplicado'))
+        self.assertFalse(duplicado.raw_payload.get('_monto_distinto'))
+
+    @patch('pagos.services._sdk')
+    def test_payment_get_no_abre_la_transaccion_de_escritura(self, mock_sdk_fn):
+        """IMMEDIATE lockea al entrar a atomic: el GET de MP tiene que ir antes."""
+        self._reserva_vigente()
+        profundidad_antes = len(connection.atomic_blocks)
+        profundidad_get: list[int] = []
+        profundidad_lock: list[int] = []
+
+        def fake_get(payment_id):
+            profundidad_get.append(len(connection.atomic_blocks))
+            return {
+                'status': 200,
+                'response': {
+                    'status': 'approved',
+                    'external_reference': self.pedido.numero,
+                    'id': int(payment_id),
+                    'transaction_amount': 100,
+                },
+            }
+
+        mock_sdk = MagicMock()
+        mock_sdk_fn.return_value = mock_sdk
+        mock_sdk.payment.return_value.get.side_effect = fake_get
+
+        original_lock = Pedido.objects.select_for_update
+
+        def spy_lock(*args, **kwargs):
+            profundidad_lock.append(len(connection.atomic_blocks))
+            return original_lock(*args, **kwargs)
+
+        with patch.object(Pedido.objects, 'select_for_update', spy_lock):
+            procesar_notificacion_mp('8080')
+
+        # TestCase ya tiene un atomic. El GET no debe abrir otro.
+        # El lock del pedido sí: ahí empieza la transacción de escritura.
+        self.assertEqual(profundidad_get, [profundidad_antes])
+        self.assertTrue(profundidad_lock)
+        self.assertEqual(min(profundidad_lock), profundidad_antes + 1)
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.CONFIRMADO)
+        pago = Pago.objects.get(pedido=self.pedido, id_externo='8080')
+        self.assertEqual(pago.estado, Pago.Estado.APROBADO)
+        self.assertFalse(pago.raw_payload.get('_cobro_duplicado'))
 
     def test_webhook_sin_secret_acepta_en_debug(self):
         request = MagicMock()
