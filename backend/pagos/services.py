@@ -436,9 +436,13 @@ def _cancelar_si_sigue_pagable_online(pedido: Pedido, motivo: str) -> None:
         )
 
 
-@transaction.atomic
 def procesar_notificacion_mp(payment_id: str) -> None:
-    """Consulta el pago en MP y actualiza pedido si fue aprobado."""
+    """Consulta el pago en MP y actualiza pedido si fue aprobado.
+
+    El GET queda fuera de la transacción. Con SQLite en modo IMMEDIATE,
+    atomic() toma el lock de escritura al entrar: un MP lento trabaría
+    checkout, vencimiento de stock y el resto de los webhooks.
+    """
     sdk = _sdk()
     response = sdk.payment().get(payment_id)
     data = response.get('response', {})
@@ -451,6 +455,16 @@ def procesar_notificacion_mp(payment_id: str) -> None:
     if not external_ref:
         return
 
+    _aplicar_notificacion_mp(payment_id, data, external_ref)
+
+
+@transaction.atomic
+def _aplicar_notificacion_mp(
+    payment_id: str,
+    data: dict[str, Any],
+    external_ref: str,
+) -> None:
+    """Persiste el payment ya consultado en MP. Corre dentro de atomic()."""
     try:
         pedido = Pedido.objects.select_for_update().get(numero=external_ref)
     except Pedido.DoesNotExist:
@@ -481,9 +495,15 @@ def procesar_notificacion_mp(payment_id: str) -> None:
         pago.id_externo = payment_id_str
         # Reintento después de confirmar: sincronizar Pago y no volver a confirmar.
         if pedido.estado == Pedido.Estado.CONFIRMADO:
+            # APROBADO también lo usa _monto_distinto (MP acreditó ese payment,
+            # pero no cerró el pedido). Si contara como otro cobro, el reintento
+            # IPN del payment que sí matcheó el total quedaría _cobro_duplicado.
+            # isnull y no exclude(clave=True): en SQLite la clave ausente es
+            # NULL, y ese exclude se comería también el cobro legítimo.
             hay_otro_aprobado = (
                 Pago.objects.filter(pedido=pedido, estado=Pago.Estado.APROBADO)
                 .exclude(pk=pago.pk)
+                .filter(raw_payload___monto_distinto__isnull=True)
                 .exists()
             )
             if hay_otro_aprobado:

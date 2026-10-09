@@ -7,6 +7,7 @@ from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.models import User
+from django.db import transaction
 from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
 
@@ -143,6 +144,34 @@ class MercadoPagoMockTests(TestCase):
         self.assertEqual(self.pedido.estado, Pedido.Estado.CONFIRMADO)
         pago = Pago.objects.filter(pedido=self.pedido, estado=Pago.Estado.APROBADO).first()
         self.assertIsNotNone(pago)
+
+    @patch('pagos.services._sdk')
+    def test_get_de_mp_no_abre_transaccion(self, mock_sdk_fn):
+        """payment.get queda fuera de atomic(): IMMEDIATE lockearía todo SQLite."""
+        self._reserva_vigente()
+        conexion = transaction.get_connection()
+        # TestCase ya abrió una transacción. El GET no debe anidar otra.
+        bloques_al_entrar = len(conexion.atomic_blocks)
+
+        def get(payment_id):
+            self.assertEqual(len(conexion.atomic_blocks), bloques_al_entrar)
+            return {
+                'status': 200,
+                'response': {
+                    'status': 'approved',
+                    'external_reference': self.pedido.numero,
+                    'id': int(payment_id),
+                    'transaction_amount': 100,
+                },
+            }
+
+        mock_sdk = MagicMock()
+        mock_sdk_fn.return_value = mock_sdk
+        mock_sdk.payment.return_value.get.side_effect = get
+
+        procesar_notificacion_mp('12345')
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.CONFIRMADO)
 
     def _mock_pago_con_monto(self, mock_sdk_fn, payment_id, monto, preference_id=''):
         mock_sdk = MagicMock()
@@ -286,6 +315,58 @@ class MercadoPagoMockTests(TestCase):
         self.assertTrue(chico.raw_payload.get('_monto_distinto'))
         bueno = Pago.objects.get(pedido=self.pedido, id_externo='4647')
         self.assertFalse(bueno.raw_payload.get('_monto_distinto'))
+
+    @patch('pagos.services._sdk')
+    def test_reintento_del_total_no_es_duplicado_por_monto_distinto(self, mock_sdk_fn):
+        """Un approved que no cerró el pedido no marca el cobro real como duplicado.
+
+        Sin transaction_amount el Pago queda APROBADO con el monto de la
+        preferencia y _monto_distinto. El reintento IPN del payment que sí
+        coincidió con el total no puede llevar _cobro_duplicado.
+        """
+        self._reserva_vigente()
+        Pago.objects.create(
+            pedido=self.pedido,
+            medio=Pago.Medio.MERCADOPAGO,
+            estado=Pago.Estado.PENDIENTE,
+            monto=self.pedido.total,
+            id_externo='pref-sin-monto',
+        )
+        mock_sdk = MagicMock()
+        mock_sdk_fn.return_value = mock_sdk
+        mock_sdk.payment.return_value.get.return_value = {
+            'status': 200,
+            'response': {
+                'status': 'approved',
+                'external_reference': self.pedido.numero,
+                'id': 4646,
+                'preference_id': 'pref-sin-monto',
+            },
+        }
+        procesar_notificacion_mp('4646')
+
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.PENDIENTE_PAGO)
+        chico = Pago.objects.get(pedido=self.pedido)
+        self.assertEqual(chico.estado, Pago.Estado.APROBADO)
+        self.assertTrue(chico.raw_payload.get('_monto_distinto'))
+        self.assertEqual(chico.monto, Decimal('100.00'))
+
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4647, monto=100)
+        procesar_notificacion_mp('4647')
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.CONFIRMADO)
+
+        # Mismo payment_id: MP reintenta el IPN del cobro que confirmó.
+        procesar_notificacion_mp('4647')
+
+        bueno = Pago.objects.get(pedido=self.pedido, id_externo='4647')
+        self.assertFalse(bueno.raw_payload.get('_cobro_duplicado'))
+        self.assertFalse(bueno.raw_payload.get('_monto_distinto'))
+        chico.refresh_from_db()
+        self.assertTrue(chico.raw_payload.get('_monto_distinto'))
+        self.assertFalse(chico.raw_payload.get('_cobro_duplicado'))
+        self.assertEqual(StockWeb.objects.get(producto=self.producto).cantidad, 9)
 
     def test_webhook_sin_secret_acepta_en_debug(self):
         request = MagicMock()
