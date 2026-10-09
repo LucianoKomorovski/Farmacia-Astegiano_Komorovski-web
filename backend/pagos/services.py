@@ -340,6 +340,17 @@ def _es_monto_distinto(pago: Pago) -> bool:
     return bool(payload.get('_monto_distinto'))
 
 
+def _es_cobro_duplicado(pago: Pago) -> bool:
+    """True si este APROBADO es un cargo extra, no el que confirmó el pedido."""
+    payload = pago.raw_payload if isinstance(pago.raw_payload, dict) else {}
+    return bool(payload.get('_cobro_duplicado'))
+
+
+def _cuenta_como_cobro_que_confirma(pago: Pago) -> bool:
+    """Solo el approved del total, sin flags de conciliación, cierra la venta."""
+    return not _es_monto_distinto(pago) and not _es_cobro_duplicado(pago)
+
+
 def _hay_otro_cobro_que_confirma(pedido: Pedido, pago: Pago) -> bool:
     """Hay otro APROBADO que sí puede ser el cobro que confirmó el pedido.
 
@@ -348,14 +359,20 @@ def _hay_otro_cobro_que_confirma(pedido: Pedido, pago: Pago) -> bool:
     acá, el reintento normal de Mercado Pago del cobro por el total vería
     esa fila y marcaría al pago legítimo como `_cobro_duplicado`. Staff
     podría devolver la plata del cargo real.
+
+    El segundo payment por el total queda APROBADO con `_cobro_duplicado`.
+    El reintento IPN del cobro legítimo no puede tomarlo como "otro que
+    confirma": si no, le pone el flag al pago real e invierte cuál es el
+    legítimo. Staff devolvería el cargo que sí cerró el pedido.
     """
     # SQLite de este proyecto no soporta el lookup JSON `contains`.
-    # Son pocos pagos por pedido: leemos las filas y saltamos _monto_distinto.
+    # Son pocos pagos por pedido: leemos las filas y saltamos las que no
+    # cerraron la venta (_monto_distinto o _cobro_duplicado).
     otros = (
         Pago.objects.filter(pedido=pedido, estado=Pago.Estado.APROBADO)
         .exclude(pk=pago.pk)
     )
-    return any(not _es_monto_distinto(otro) for otro in otros)
+    return any(_cuenta_como_cobro_que_confirma(otro) for otro in otros)
 
 
 def _monto_notificado_mp(data: dict[str, Any]) -> Decimal | None:

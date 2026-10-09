@@ -734,6 +734,58 @@ class MercadoPagoMockTests(TestCase):
         original = Pago.objects.get(pedido=self.pedido, id_externo='1001')
         self.assertFalse(original.raw_payload.get('_cobro_duplicado'))
 
+    @patch('pagos.services._sdk')
+    def test_reintento_del_cobro_real_no_hereda_duplicado_del_segundo_total(
+        self, mock_sdk_fn,
+    ):
+        """El duplicado full-amount no puede marcar el reintento del cobro real.
+
+        Secuencia: el payment por el total confirma; un segundo payment por
+        el mismo total queda `_cobro_duplicado`; MP reintenta el IPN del
+        primero. Ese hermano ya está flaggeado: no es "otro APROBADO que
+        confirma", así que el legítimo sigue sin el flag y el pedido no cambia.
+        """
+        self._reserva_vigente()
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4801, monto=100)
+        procesar_notificacion_mp('4801')
+
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.CONFIRMADO)
+        self.assertEqual(StockWeb.objects.get(producto=self.producto).cantidad, 9)
+        legitimo = Pago.objects.get(pedido=self.pedido, id_externo='4801')
+        self.assertEqual(legitimo.estado, Pago.Estado.APROBADO)
+        self.assertFalse(legitimo.raw_payload.get('_cobro_duplicado'))
+
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4802, monto=100)
+        procesar_notificacion_mp('4802')
+
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.CONFIRMADO)
+        self.assertEqual(StockWeb.objects.get(producto=self.producto).cantidad, 9)
+        duplicado = Pago.objects.get(pedido=self.pedido, id_externo='4802')
+        self.assertEqual(duplicado.estado, Pago.Estado.APROBADO)
+        self.assertTrue(duplicado.raw_payload.get('_cobro_duplicado'))
+        self.assertFalse(duplicado.raw_payload.get('_monto_distinto'))
+
+        # Reintento IPN del cobro que sí confirmó.
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4801, monto=100)
+        procesar_notificacion_mp('4801')
+
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.CONFIRMADO)
+        self.assertFalse(self.pedido.puede_pagar_online)
+        self.assertEqual(StockWeb.objects.get(producto=self.producto).cantidad, 9)
+        self.assertEqual(Pago.objects.filter(pedido=self.pedido).count(), 2)
+
+        legitimo.refresh_from_db()
+        self.assertEqual(legitimo.estado, Pago.Estado.APROBADO)
+        self.assertEqual(legitimo.id_externo, '4801')
+        self.assertFalse(legitimo.raw_payload.get('_cobro_duplicado'))
+        self.assertFalse(legitimo.raw_payload.get('_monto_distinto'))
+        duplicado.refresh_from_db()
+        self.assertTrue(duplicado.raw_payload.get('_cobro_duplicado'))
+        self.assertEqual(duplicado.id_externo, '4802')
+
     @override_settings(MERCADOPAGO_WEBHOOK_SECRET='s3cret', DEBUG=False)
     def test_webhook_hmac_acepta_firma_valida_con_espacios(self):
         data_id = '12345'
