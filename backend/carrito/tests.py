@@ -52,3 +52,15 @@ class AgregarProductoTests(TestCase):
         self.carrito.refresh_from_db()
         self.assertEqual(self.carrito.modo, Carrito.Modo.INMEDIATO)
         self.assertEqual(self.carrito.lineas.count(), 1)
+
+    def test_sumar_cantidad_no_pisa_precio_snapshot(self):
+        """El precio de la línea queda congelado: sumar unidades no lo actualiza."""
+        agregar_producto(self.carrito, self.inmediato, 1)
+        self.inmediato.precio = Decimal('250')
+        self.inmediato.save(update_fields=['precio'])
+
+        agregar_producto(self.carrito, self.inmediato, 2)
+
+        linea = self.carrito.lineas.get()
+        self.assertEqual(linea.cantidad, 3)
+        self.assertEqual(linea.precio_unitario, Decimal('100'))
