@@ -10,6 +10,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from catalogo.models import Categoria, Producto
+from cuentas.services import asegurar_grupo_empleadas
 from inventario.models import ReservaStock, StockWeb
 from pedidos.admin import PedidoAdmin
 from pedidos.forms import CheckoutForm
@@ -559,6 +560,86 @@ class PedidoAdminEstadoTests(TestCase):
         self.assertNotContains(resp, 'name="estado"')
         self.assertNotContains(resp, 'name="modo"')
         self.assertNotContains(resp, 'name="medio_pago"')
+
+    def test_post_no_cambia_total_ni_reservado_hasta(self):
+        """Un POST del staff no puede bajar el total ni estirar la reserva.
+
+        El webhook de Mercado Pago confirma si el cobro coincide con
+        pedido.total. Si el admin dejara editar el total, un cobro menor
+        alcanzaría. reservado_hasta es el TTL de stock (1 hora): alargarlo
+        a mano dejaría la reserva viva más de la cuenta.
+        """
+        staff = User.objects.create_user(
+            'staff-montos', 'staff-montos@test.com', 'x12345678', is_staff=True,
+        )
+        staff.groups.add(asegurar_grupo_empleadas())
+        self.client.force_login(staff)
+
+        reservado = timezone.now() + timedelta(hours=1)
+        total = Decimal('150.00')
+        pedido = Pedido.objects.create(
+            numero='FA-2026-000031',
+            nombre_cliente='Ana',
+            email='a@t.com',
+            telefono='1',
+            estado=Pedido.Estado.PENDIENTE_PAGO,
+            modo=Pedido.Modo.INMEDIATO,
+            modalidad_entrega=Pedido.ModalidadEntrega.A_COORDINAR,
+            medio_pago=Pedido.MedioPago.MERCADOPAGO,
+            subtotal=Decimal('150.00'),
+            costo_envio=Decimal('0.00'),
+            total=total,
+            reservado_hasta=reservado,
+            notas='original',
+        )
+        url = reverse('admin:pedidos_pedido_change', args=[pedido.pk])
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+
+        data = self._datos_change(resp)
+        # El staff manda otros montos y otra fecha de reserva.
+        data['subtotal'] = '1.00'
+        data['costo_envio'] = '9.00'
+        data['total'] = '1.00'
+        data['reservado_hasta_0'] = '2099-12-31'
+        data['reservado_hasta_1'] = '23:59:59'
+        # Una nota sí se puede editar: así sabemos que el POST se guardó.
+        data['notas'] = 'nota del staff'
+        data['_save'] = 'Guardar'
+
+        resp = self.client.post(url, data)
+        self.assertRedirects(
+            resp,
+            reverse('admin:pedidos_pedido_changelist'),
+            fetch_redirect_response=False,
+        )
+
+        pedido.refresh_from_db()
+        self.assertEqual(pedido.total, total)
+        self.assertEqual(pedido.reservado_hasta, reservado)
+        self.assertEqual(pedido.subtotal, Decimal('150.00'))
+        self.assertEqual(pedido.costo_envio, Decimal('0.00'))
+        self.assertEqual(pedido.notas, 'nota del staff')
+
+    def _datos_change(self, response) -> dict[str, str]:
+        """Copia el formulario de cambio (y los inlines) para reenviarlo."""
+        data: dict[str, str] = {}
+        form = response.context['adminform'].form
+        for name in form.fields:
+            valor = form[name].value()
+            data[name] = '' if valor is None else str(valor)
+
+        for inline_formset in response.context['inline_admin_formsets']:
+            formset = inline_formset.formset
+            prefijo = formset.prefix
+            for clave, valor in formset.management_form.initial.items():
+                data[f'{prefijo}-{clave}'] = '' if valor is None else str(valor)
+            for form_inline in formset.forms:
+                for name in form_inline.fields:
+                    valor = form_inline[name].value()
+                    clave = form_inline.add_prefix(name)
+                    data[clave] = '' if valor is None else str(valor)
+        return data
 
 
 class TransicionConCopiaViejaTests(TestCase):
