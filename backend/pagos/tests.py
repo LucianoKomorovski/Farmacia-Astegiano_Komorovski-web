@@ -7,6 +7,7 @@ from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.models import User
+from django.db import connection
 from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
 
@@ -143,6 +144,262 @@ class MercadoPagoMockTests(TestCase):
         self.assertEqual(self.pedido.estado, Pedido.Estado.CONFIRMADO)
         pago = Pago.objects.filter(pedido=self.pedido, estado=Pago.Estado.APROBADO).first()
         self.assertIsNotNone(pago)
+
+    def _mock_pago_con_monto(self, mock_sdk_fn, payment_id, monto, preference_id=''):
+        mock_sdk = MagicMock()
+        mock_sdk_fn.return_value = mock_sdk
+        response = {
+            'status': 'approved',
+            'external_reference': self.pedido.numero,
+            'id': payment_id,
+            'transaction_amount': monto,
+        }
+        if preference_id:
+            response['preference_id'] = preference_id
+        mock_sdk.payment.return_value.get.return_value = {
+            'status': 200,
+            'response': response,
+        }
+        return mock_sdk
+
+    @patch('pagos.services._sdk')
+    def test_webhook_monto_menor_no_confirma(self, mock_sdk_fn):
+        """Approved de $10 no puede cerrar un pedido de $100 ni descontar stock."""
+        self._reserva_vigente()
+        Pago.objects.create(
+            pedido=self.pedido,
+            medio=Pago.Medio.MERCADOPAGO,
+            estado=Pago.Estado.PENDIENTE,
+            monto=self.pedido.total,
+            id_externo='pref-monto',
+            raw_payload={
+                '_mp_preference_id': 'pref-monto',
+                '_mp_sandbox_init_point': 'https://sandbox.mp/monto',
+            },
+        )
+        self._mock_pago_con_monto(
+            mock_sdk_fn, payment_id=4242, monto=10, preference_id='pref-monto',
+        )
+
+        try:
+            procesar_notificacion_mp('4242')
+        except Exception as exc:
+            self.fail(f'un monto distinto no debe romper el webhook: {exc}')
+
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.PENDIENTE_PAGO)
+        self.assertTrue(self.pedido.puede_pagar_online)
+        stock = StockWeb.objects.get(producto=self.producto)
+        self.assertEqual(stock.cantidad, 10)
+        self.assertEqual(
+            ReservaStock.objects.filter(
+                pedido=self.pedido, estado=ReservaStock.Estado.CONSOLIDADA,
+            ).count(),
+            0,
+        )
+        pago = Pago.objects.get(pedido=self.pedido)
+        self.assertEqual(pago.estado, Pago.Estado.APROBADO)
+        self.assertEqual(pago.monto, Decimal('10.00'))
+        self.assertTrue(pago.raw_payload.get('_monto_distinto'))
+        self.assertEqual(pago.raw_payload.get('_monto_pedido'), '100.00')
+        self.assertEqual(pago.raw_payload.get('_monto_mp'), '10.00')
+        # El writer no puede borrar el checkout para reusar la preferencia.
+        self.assertEqual(pago.raw_payload.get('_mp_preference_id'), 'pref-monto')
+        self.assertEqual(
+            pago.raw_payload.get('_mp_sandbox_init_point'),
+            'https://sandbox.mp/monto',
+        )
+
+        # Reintento del mismo payment_id: un solo registro, sigue sin confirmar.
+        procesar_notificacion_mp('4242')
+        self.assertEqual(Pago.objects.filter(pedido=self.pedido).count(), 1)
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.PENDIENTE_PAGO)
+
+    @patch('pagos.services._sdk')
+    def test_webhook_sin_monto_no_confirma(self, mock_sdk_fn):
+        """Si MP no manda transaction_amount, no asumimos el total del pedido."""
+        self._reserva_vigente()
+        mock_sdk = MagicMock()
+        mock_sdk_fn.return_value = mock_sdk
+        mock_sdk.payment.return_value.get.return_value = {
+            'status': 200,
+            'response': {
+                'status': 'approved',
+                'external_reference': self.pedido.numero,
+                'id': 4343,
+            },
+        }
+
+        procesar_notificacion_mp('4343')
+
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.PENDIENTE_PAGO)
+        stock = StockWeb.objects.get(producto=self.producto)
+        self.assertEqual(stock.cantidad, 10)
+        pago = Pago.objects.get(pedido=self.pedido)
+        self.assertTrue(pago.raw_payload.get('_monto_distinto'))
+        self.assertEqual(pago.monto, Decimal('0.00'))
+
+    @patch('pagos.services._sdk')
+    def test_webhook_monto_mayor_no_confirma(self, mock_sdk_fn):
+        """Tampoco confirmamos si cobró de más: el total tiene que coincidir."""
+        self._reserva_vigente()
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4444, monto='150.00')
+
+        procesar_notificacion_mp('4444')
+
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.PENDIENTE_PAGO)
+        self.assertEqual(StockWeb.objects.get(producto=self.producto).cantidad, 10)
+
+    @patch('pagos.services._sdk')
+    def test_webhook_monto_igual_con_decimales_si_confirma(self, mock_sdk_fn):
+        """100 y 100.00 son el mismo total: el cobro legítimo sigue confirmando."""
+        self._reserva_vigente()
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4545, monto='100.00')
+
+        procesar_notificacion_mp('4545')
+
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.CONFIRMADO)
+        pago = Pago.objects.get(pedido=self.pedido)
+        self.assertFalse(pago.raw_payload.get('_monto_distinto'))
+        self.assertEqual(StockWeb.objects.get(producto=self.producto).cantidad, 9)
+
+    @patch('pagos.services._sdk')
+    def test_webhook_monto_ok_despues_de_uno_distinto_confirma(self, mock_sdk_fn):
+        """El pago chico queda registrado; el cobro por el total sí confirma."""
+        self._reserva_vigente()
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4646, monto=10)
+        procesar_notificacion_mp('4646')
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.PENDIENTE_PAGO)
+
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4647, monto=100)
+        procesar_notificacion_mp('4647')
+
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.CONFIRMADO)
+        self.assertEqual(StockWeb.objects.get(producto=self.producto).cantidad, 9)
+        self.assertEqual(Pago.objects.filter(pedido=self.pedido).count(), 2)
+        chico = Pago.objects.get(pedido=self.pedido, id_externo='4646')
+        self.assertTrue(chico.raw_payload.get('_monto_distinto'))
+        bueno = Pago.objects.get(pedido=self.pedido, id_externo='4647')
+        self.assertFalse(bueno.raw_payload.get('_monto_distinto'))
+
+    @patch('pagos.services._sdk')
+    def test_reintento_del_cobro_real_no_hereda_duplicado_del_monto_distinto(
+        self, mock_sdk_fn,
+    ):
+        """Un approved corto no puede marcar el reintento del total como extra.
+
+        MP reintenta el webhook del cobro legítimo después de confirmar.
+        La fila APROBADO con _monto_distinto no es ese cobro: el pedido
+        seguía pagable y el stock no se confirmó con ella.
+        """
+        self._reserva_vigente()
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4646, monto=10)
+        procesar_notificacion_mp('4646')
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.PENDIENTE_PAGO)
+        self.assertTrue(self.pedido.puede_pagar_online)
+
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4647, monto=100)
+        procesar_notificacion_mp('4647')
+        # Reintento del corto (sigue distinto) y del total (el que confirmó).
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4646, monto=10)
+        procesar_notificacion_mp('4646')
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4647, monto=100)
+        procesar_notificacion_mp('4647')
+
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.CONFIRMADO)
+        self.assertFalse(self.pedido.puede_pagar_online)
+        self.assertEqual(StockWeb.objects.get(producto=self.producto).cantidad, 9)
+        self.assertEqual(Pago.objects.filter(pedido=self.pedido).count(), 2)
+
+        chico = Pago.objects.get(pedido=self.pedido, id_externo='4646')
+        self.assertEqual(chico.estado, Pago.Estado.APROBADO)
+        self.assertEqual(chico.monto, Decimal('10.00'))
+        self.assertTrue(chico.raw_payload.get('_monto_distinto'))
+        self.assertFalse(chico.raw_payload.get('_cobro_duplicado'))
+
+        bueno = Pago.objects.get(pedido=self.pedido, id_externo='4647')
+        self.assertEqual(bueno.estado, Pago.Estado.APROBADO)
+        self.assertEqual(bueno.monto, Decimal('100.00'))
+        self.assertFalse(bueno.raw_payload.get('_monto_distinto'))
+        self.assertFalse(bueno.raw_payload.get('_cobro_duplicado'))
+
+    @patch('pagos.services._sdk')
+    def test_segundo_total_sigue_siendo_duplicado_con_monto_distinto_al_lado(
+        self, mock_sdk_fn,
+    ):
+        """Excluir el corto no esconde un segundo cobro por el total."""
+        self._reserva_vigente()
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4701, monto=10)
+        procesar_notificacion_mp('4701')
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4702, monto=100)
+        procesar_notificacion_mp('4702')
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4703, monto=100)
+        procesar_notificacion_mp('4703')
+
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.CONFIRMADO)
+        self.assertEqual(StockWeb.objects.get(producto=self.producto).cantidad, 9)
+
+        chico = Pago.objects.get(pedido=self.pedido, id_externo='4701')
+        self.assertTrue(chico.raw_payload.get('_monto_distinto'))
+        self.assertFalse(chico.raw_payload.get('_cobro_duplicado'))
+        original = Pago.objects.get(pedido=self.pedido, id_externo='4702')
+        self.assertFalse(original.raw_payload.get('_cobro_duplicado'))
+        duplicado = Pago.objects.get(pedido=self.pedido, id_externo='4703')
+        self.assertTrue(duplicado.raw_payload.get('_cobro_duplicado'))
+        self.assertFalse(duplicado.raw_payload.get('_monto_distinto'))
+
+    @patch('pagos.services._sdk')
+    def test_payment_get_no_abre_la_transaccion_de_escritura(self, mock_sdk_fn):
+        """IMMEDIATE lockea al entrar a atomic: el GET de MP tiene que ir antes."""
+        self._reserva_vigente()
+        profundidad_antes = len(connection.atomic_blocks)
+        profundidad_get: list[int] = []
+        profundidad_lock: list[int] = []
+
+        def fake_get(payment_id):
+            profundidad_get.append(len(connection.atomic_blocks))
+            return {
+                'status': 200,
+                'response': {
+                    'status': 'approved',
+                    'external_reference': self.pedido.numero,
+                    'id': int(payment_id),
+                    'transaction_amount': 100,
+                },
+            }
+
+        mock_sdk = MagicMock()
+        mock_sdk_fn.return_value = mock_sdk
+        mock_sdk.payment.return_value.get.side_effect = fake_get
+
+        original_lock = Pedido.objects.select_for_update
+
+        def spy_lock(*args, **kwargs):
+            profundidad_lock.append(len(connection.atomic_blocks))
+            return original_lock(*args, **kwargs)
+
+        with patch.object(Pedido.objects, 'select_for_update', spy_lock):
+            procesar_notificacion_mp('8080')
+
+        # TestCase ya tiene un atomic. El GET no debe abrir otro.
+        # El lock del pedido sí: ahí empieza la transacción de escritura.
+        self.assertEqual(profundidad_get, [profundidad_antes])
+        self.assertTrue(profundidad_lock)
+        self.assertEqual(min(profundidad_lock), profundidad_antes + 1)
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.CONFIRMADO)
+        pago = Pago.objects.get(pedido=self.pedido, id_externo='8080')
+        self.assertEqual(pago.estado, Pago.Estado.APROBADO)
+        self.assertFalse(pago.raw_payload.get('_cobro_duplicado'))
 
     def test_webhook_sin_secret_acepta_en_debug(self):
         request = MagicMock()
@@ -477,6 +734,58 @@ class MercadoPagoMockTests(TestCase):
         original = Pago.objects.get(pedido=self.pedido, id_externo='1001')
         self.assertFalse(original.raw_payload.get('_cobro_duplicado'))
 
+    @patch('pagos.services._sdk')
+    def test_reintento_del_cobro_real_no_hereda_duplicado_del_segundo_total(
+        self, mock_sdk_fn,
+    ):
+        """El duplicado full-amount no puede marcar el reintento del cobro real.
+
+        Secuencia: el payment por el total confirma; un segundo payment por
+        el mismo total queda `_cobro_duplicado`; MP reintenta el IPN del
+        primero. Ese hermano ya está flaggeado: no es "otro APROBADO que
+        confirma", así que el legítimo sigue sin el flag y el pedido no cambia.
+        """
+        self._reserva_vigente()
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4801, monto=100)
+        procesar_notificacion_mp('4801')
+
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.CONFIRMADO)
+        self.assertEqual(StockWeb.objects.get(producto=self.producto).cantidad, 9)
+        legitimo = Pago.objects.get(pedido=self.pedido, id_externo='4801')
+        self.assertEqual(legitimo.estado, Pago.Estado.APROBADO)
+        self.assertFalse(legitimo.raw_payload.get('_cobro_duplicado'))
+
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4802, monto=100)
+        procesar_notificacion_mp('4802')
+
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.CONFIRMADO)
+        self.assertEqual(StockWeb.objects.get(producto=self.producto).cantidad, 9)
+        duplicado = Pago.objects.get(pedido=self.pedido, id_externo='4802')
+        self.assertEqual(duplicado.estado, Pago.Estado.APROBADO)
+        self.assertTrue(duplicado.raw_payload.get('_cobro_duplicado'))
+        self.assertFalse(duplicado.raw_payload.get('_monto_distinto'))
+
+        # Reintento IPN del cobro que sí confirmó.
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=4801, monto=100)
+        procesar_notificacion_mp('4801')
+
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.CONFIRMADO)
+        self.assertFalse(self.pedido.puede_pagar_online)
+        self.assertEqual(StockWeb.objects.get(producto=self.producto).cantidad, 9)
+        self.assertEqual(Pago.objects.filter(pedido=self.pedido).count(), 2)
+
+        legitimo.refresh_from_db()
+        self.assertEqual(legitimo.estado, Pago.Estado.APROBADO)
+        self.assertEqual(legitimo.id_externo, '4801')
+        self.assertFalse(legitimo.raw_payload.get('_cobro_duplicado'))
+        self.assertFalse(legitimo.raw_payload.get('_monto_distinto'))
+        duplicado.refresh_from_db()
+        self.assertTrue(duplicado.raw_payload.get('_cobro_duplicado'))
+        self.assertEqual(duplicado.id_externo, '4802')
+
     @override_settings(MERCADOPAGO_WEBHOOK_SECRET='s3cret', DEBUG=False)
     def test_webhook_hmac_acepta_firma_valida_con_espacios(self):
         data_id = '12345'
@@ -523,6 +832,25 @@ class MercadoPagoMockTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.pedido.refresh_from_db()
         self.assertFalse(self.pedido.puede_pagar_online)
+
+    @patch('pagos.services._sdk')
+    def test_webhook_http_monto_distinto_devuelve_200(self, mock_sdk_fn):
+        """Monto incorrecto: 200 para que MP no reintente, y el pedido sigue impago."""
+        from pagos.views import webhook_mp
+
+        self._reserva_vigente()
+        self._mock_pago_con_monto(mock_sdk_fn, payment_id=9191, monto=1)
+
+        request = self.factory.post(
+            '/pagos/webhook/?topic=payment&data.id=9191',
+            data=b'{"type":"payment","data":{"id":"9191"}}',
+            content_type='application/json',
+        )
+        resp = webhook_mp(request)
+        self.assertEqual(resp.status_code, 200)
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.PENDIENTE_PAGO)
+        self.assertEqual(StockWeb.objects.get(producto=self.producto).cantidad, 10)
 
 
 class TransferenciaConfirmTests(TestCase):

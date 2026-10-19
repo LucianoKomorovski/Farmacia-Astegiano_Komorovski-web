@@ -134,11 +134,17 @@ class PedidoAdmin(admin.ModelAdmin):
     search_fields = ('numero', 'nombre_cliente', 'email', 'telefono')
     # modo y medio_pago fijan la máquina de estados (stock y cobro).
     # No se editan a mano: las transiciones van por las acciones de arriba.
+    # Los montos y reservado_hasta tampoco: el webhook de Mercado Pago
+    # compara el cobro contra total, y estirar la reserva saltea el TTL de 1h.
     readonly_fields = (
         'numero',
         'estado',
         'modo',
         'medio_pago',
+        'subtotal',
+        'costo_envio',
+        'total',
+        'reservado_hasta',
         'created_at',
         'updated_at',
         'confirmado_en',

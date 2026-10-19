@@ -6,7 +6,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import F, Sum
 from django.utils import timezone
 
 from .models import ReservaStock, StockWeb
@@ -14,6 +14,11 @@ from .models import ReservaStock, StockWeb
 
 class StockError(Exception):
     """Error de stock (mensaje para el usuario o logs)."""
+
+
+# Los tests de carrera esperan acá (reserva ya leída, stock todavía sin descontar).
+# En producción queda en None y no cambia nada.
+pausa_antes_de_descontar = None
 
 
 def ttl_reserva() -> timedelta:
@@ -37,12 +42,28 @@ def cantidad_disponible(producto_id: int) -> int:
     return stock.cantidad_disponible
 
 
+def _bloquear_stock(producto_id: int) -> int:
+    """Toma la fila de StockWeb antes de leer el disponible.
+
+    En Postgres, SELECT FOR UPDATE alcanza. En SQLite Django no emite
+    FOR UPDATE, así que dos checkouts leen el mismo número y reservan de
+    más. Este UPDATE sí espera al otro y recién ahí se vuelve a contar.
+    """
+    return StockWeb.objects.filter(producto_id=producto_id).update(
+        actualizado_en=timezone.now(),
+    )
+
+
 @transaction.atomic
 def reservar_stock_para_pedido(pedido, lineas: list) -> None:
     """Crea reservas activas con TTL. No baja stock_web todavía."""
     expires_at = timezone.now() + ttl_reserva()
 
-    for linea in lineas:
+    # Mismo orden de productos en todos los pedidos: evita deadlock.
+    for linea in sorted(lineas, key=lambda item: item.producto_id):
+        if _bloquear_stock(linea.producto_id) == 0:
+            raise StockError(f'No hay stock web de "{linea.producto.nombre}".')
+
         stock = (
             StockWeb.objects.select_for_update()
             .filter(producto_id=linea.producto_id)
@@ -62,6 +83,10 @@ def reservar_stock_para_pedido(pedido, lineas: list) -> None:
                 f'(disponible: {disponible}).'
             )
 
+        # Adentro del lock: el otro checkout espera y vuelve a contar.
+        if pausa_antes_de_descontar is not None:
+            pausa_antes_de_descontar()
+
         ReservaStock.objects.create(
             producto_id=linea.producto_id,
             pedido=pedido,
@@ -79,12 +104,14 @@ def consolidar_reservas_pedido(pedido) -> None:
     falla: confirmar sin consolidar dejaría el pago OK y el stock sin descontar.
     """
     # list() ejecuta el SELECT FOR UPDATE; exists() no garantiza el lock.
+    # En SQLite ese lock no existe: el UPDATE de abajo es el que serializa.
+    ahora = timezone.now()
     reservas = list(
         ReservaStock.objects.select_for_update().filter(
             pedido=pedido,
             estado=ReservaStock.Estado.ACTIVA,
-            expires_at__gt=timezone.now(),
-        )
+            expires_at__gt=ahora,
+        ).order_by('producto_id')
     )
     if not reservas:
         raise StockError(
@@ -92,19 +119,34 @@ def consolidar_reservas_pedido(pedido) -> None:
         )
 
     for reserva in reservas:
-        stock = (
-            StockWeb.objects.select_for_update()
-            .filter(producto_id=reserva.producto_id)
-            .first()
+        if pausa_antes_de_descontar is not None:
+            pausa_antes_de_descontar()
+
+        # Solo una transacción gana la reserva. La otra ve 0 filas y aborta
+        # (si no, las dos descontarían el mismo stock).
+        marcada = ReservaStock.objects.filter(
+            pk=reserva.pk,
+            estado=ReservaStock.Estado.ACTIVA,
+            expires_at__gt=ahora,
+        ).update(estado=ReservaStock.Estado.CONSOLIDADA)
+        if marcada != 1:
+            raise StockError(
+                f'No hay reserva de stock vigente para consolidar el pedido {pedido.numero}.'
+            )
+
+        # cantidad = cantidad - N en una sola sentencia. Leer, restar en
+        # Python y guardar pisa el descuento del otro pago (sobreventa).
+        descontado = StockWeb.objects.filter(
+            producto_id=reserva.producto_id,
+            cantidad__gte=reserva.cantidad,
+        ).update(
+            cantidad=F('cantidad') - reserva.cantidad,
+            actualizado_en=timezone.now(),
         )
-        if stock is None or stock.cantidad < reserva.cantidad:
+        if descontado != 1:
             raise StockError(
                 f'Stock insuficiente al confirmar pedido {pedido.numero}.'
             )
-        stock.cantidad -= reserva.cantidad
-        stock.save(update_fields=['cantidad', 'actualizado_en'])
-        reserva.estado = ReservaStock.Estado.CONSOLIDADA
-        reserva.save(update_fields=['estado'])
 
 
 @transaction.atomic
@@ -117,33 +159,50 @@ def liberar_reservas_pedido(pedido, nuevo_estado: str = ReservaStock.Estado.LIBE
 
 
 def expirar_reservas_vencidas() -> int:
-    """Job periódico: marca reservas vencidas y cancela pedidos afectados."""
+    """Job periódico: marca reservas vencidas y cancela pedidos afectados.
+
+    Cada pedido va en su transacción. Si marcamos EXPIRADA y el proceso
+    muere antes de cancelar, el próximo cron ya no ve la reserva y el
+    pedido de transferencia queda cobrable para siempre.
+    """
     from pedidos.models import Pedido
     from pedidos.services import cancelar_pedido
 
     ahora = timezone.now()
-    reservas = list(
-        ReservaStock.objects.filter(
+    pedido_ids = sorted({
+        pedido_id
+        for pedido_id in ReservaStock.objects.filter(
             estado=ReservaStock.Estado.ACTIVA,
             expires_at__lte=ahora,
-        ).select_related('pedido')
-    )
-    if not reservas:
+        ).values_list('pedido_id', flat=True)
+    })
+    if not pedido_ids:
         return 0
 
-    pedidos_ids = {r.pedido_id for r in reservas}
-    ReservaStock.objects.filter(
-        id__in=[r.id for r in reservas],
-    ).update(estado=ReservaStock.Estado.EXPIRADA)
-
     cancelados = 0
-    for pedido_id in pedidos_ids:
-        pedido = Pedido.objects.get(pk=pedido_id)
-        if pedido.estado in (
-            Pedido.Estado.PENDIENTE_PAGO,
-            Pedido.Estado.PENDIENTE_TRANSFERENCIA,
-        ):
-            cancelar_pedido(pedido, motivo='Reserva de stock expirada (1 h).')
-            cancelados += 1
+    for pedido_id in pedido_ids:
+        with transaction.atomic():
+            # Mismo orden que confirmar: primero el pedido, después la reserva.
+            Pedido.objects.filter(pk=pedido_id).update(updated_at=timezone.now())
+            try:
+                pedido = Pedido.objects.select_for_update().get(pk=pedido_id)
+            except Pedido.DoesNotExist:
+                continue
+
+            # estado=ACTIVA en el UPDATE: no pisar una reserva ya consolidada.
+            hubo = ReservaStock.objects.filter(
+                pedido_id=pedido_id,
+                estado=ReservaStock.Estado.ACTIVA,
+                expires_at__lte=ahora,
+            ).update(estado=ReservaStock.Estado.EXPIRADA)
+            if not hubo:
+                continue
+
+            if pedido.estado in (
+                Pedido.Estado.PENDIENTE_PAGO,
+                Pedido.Estado.PENDIENTE_TRANSFERENCIA,
+            ):
+                cancelar_pedido(pedido, motivo='Reserva de stock expirada (1 h).')
+                cancelados += 1
 
     return cancelados

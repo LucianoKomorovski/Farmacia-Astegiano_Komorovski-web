@@ -169,6 +169,22 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
+        # SQLite no tiene SELECT FOR UPDATE (Django lo ignora). Con el modo
+        # diferido, dos checkouts leen el stock antes de escribir y pueden
+        # vender la misma unidad. IMMEDIATE toma el lock de escritura al
+        # abrir la transacción: el segundo espera y relee.
+        # El lock se toma apenas entra atomic(), antes de cualquier query.
+        # Por eso el webhook consulta Mercado Pago (payment.get) AFUERA de
+        # la transacción: un HTTP lento no puede frenar a los demás writers.
+        'OPTIONS': {
+            'transaction_mode': 'IMMEDIATE',
+            'timeout': 20,
+        },
+        # Archivo real, no :memory: compartida. La memoria compartida de
+        # los tests devuelve "database table is locked" y no espera.
+        'TEST': {
+            'NAME': '/tmp/farmacia-test.sqlite3',
+        },
     }
 }
 

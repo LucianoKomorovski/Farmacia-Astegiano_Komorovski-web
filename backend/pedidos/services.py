@@ -4,12 +4,13 @@ from datetime import date
 from decimal import Decimal
 
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
+from django.db.models import F
 from django.http import HttpRequest
 from django.utils import timezone
 
 from carrito.models import Carrito
-from carrito.services import lineas_del_carrito
+from carrito.services import bloquear_carrito, lineas_del_carrito
 from inventario.services import (
     StockError,
     consolidar_reservas_pedido,
@@ -74,6 +75,24 @@ def _vaciar_carrito(carrito: Carrito) -> None:
     carrito.save(update_fields=['modo', 'updated_at'])
 
 
+def _bloquear_pedido(pedido: Pedido) -> Pedido:
+    """Relee el pedido con un lock que también funciona en SQLite.
+
+    Dos acciones (staff o webhook) pueden tener una copia vieja en memoria.
+    Sin releer, la segunda pisa el estado de la primera: cancela un entregado
+    o salta de listo para retiro a despachado.
+    SELECT FOR UPDATE no bloquea en SQLite; el UPDATE de la fila sí.
+    """
+    Pedido.objects.filter(pk=pedido.pk).update(updated_at=timezone.now())
+    fresco = Pedido.objects.select_for_update().get(pk=pedido.pk)
+    pedido.estado = fresco.estado
+    pedido.modo = fresco.modo
+    pedido.medio_pago = fresco.medio_pago
+    pedido.reservado_hasta = fresco.reservado_hasta
+    pedido.confirmado_en = fresco.confirmado_en
+    return pedido
+
+
 def _validar_envio_con_cupo(
     franja: FranjaEnvio | None,
     fecha: date | None,
@@ -81,7 +100,7 @@ def _validar_envio_con_cupo(
     """Revalida franja, fecha y cupo justo antes de crear un envío.
 
     El formulario ya lo chequea, pero dos checkouts a la vez pueden pasar
-    tiene_cupo los dos. Bloquear la fila de la franja serializa el conteo.
+    tiene_cupo los dos. El UPDATE toma el lock (en SQLite, FOR UPDATE no).
     """
     if franja is None or fecha is None:
         raise PedidoError('Elegí una franja horaria y una fecha de envío.')
@@ -89,11 +108,17 @@ def _validar_envio_con_cupo(
     if fecha < timezone.localdate():
         raise PedidoError('La fecha no puede ser anterior a hoy.')
 
+    # Lock de la franja: el segundo checkout espera y vuelve a contar.
+    if FranjaEnvio.objects.filter(pk=franja.pk).update(orden=F('orden')) == 0:
+        raise PedidoError('La franja de envío elegida ya no está disponible.')
+
     try:
-        # Lock de la franja: el segundo checkout espera y vuelve a contar.
         franja_bloqueada = FranjaEnvio.objects.select_for_update().get(pk=franja.pk)
     except FranjaEnvio.DoesNotExist as exc:
         raise PedidoError('La franja de envío elegida ya no está disponible.') from exc
+
+    if not franja_bloqueada.activa:
+        raise PedidoError('La franja de envío elegida ya no está disponible.')
 
     if not franja_bloqueada.tiene_cupo(fecha):
         raise PedidoError(
@@ -108,6 +133,9 @@ def crear_pedido_desde_carrito(
     carrito: Carrito,
     datos: dict,
 ) -> Pedido:
+    # Lock antes de leer líneas: un doble click no puede crear dos pedidos
+    # ni cobrar dos veces si todavía hay stock para ambos.
+    carrito = bloquear_carrito(carrito)
     lineas = list(lineas_del_carrito(carrito))
     if not lineas:
         raise PedidoError('El carrito está vacío.')
@@ -130,7 +158,8 @@ def crear_pedido_desde_carrito(
     es_encargue = carrito.modo == Carrito.Modo.ENCARGUE
 
     modalidad = datos['modalidad_entrega']
-    subtotal = carrito.subtotal
+    # Total de las líneas ya bloqueadas, no un segundo query al carrito.
+    subtotal = sum((linea.subtotal for linea in lineas), Decimal('0'))
     costo_envio = calcular_costo_envio(subtotal, modalidad)
     total = subtotal + costo_envio
 
@@ -146,8 +175,9 @@ def crear_pedido_desde_carrito(
     if modalidad == Pedido.ModalidadEntrega.ENVIO:
         franja_envio, fecha_entrega = _validar_envio_con_cupo(franja_envio, fecha_entrega)
 
-    pedido = Pedido.objects.create(
-        numero=generar_numero_pedido(),
+    # Dos checkouts a la vez pueden calcular el mismo FA-AAAA-NNNNNN.
+    # El único de `numero` revienta con IntegrityError; reintentamos.
+    campos_pedido = dict(
         usuario=request.user if request.user.is_authenticated else None,
         nombre_cliente=datos['nombre_cliente'].strip(),
         email=datos['email'].strip().lower(),
@@ -166,6 +196,19 @@ def crear_pedido_desde_carrito(
         total=total,
         reservado_hasta=reservado_hasta,
     )
+    pedido = None
+    for _ in range(5):
+        try:
+            with transaction.atomic():
+                pedido = Pedido.objects.create(
+                    numero=generar_numero_pedido(),
+                    **campos_pedido,
+                )
+            break
+        except IntegrityError:
+            pedido = None
+    if pedido is None:
+        raise PedidoError('No pudimos registrar el pedido. Intentá de nuevo.')
 
     for linea in lineas:
         LineaPedido.objects.create(
@@ -211,8 +254,16 @@ def pedido_usa_pago_online(pedido: Pedido) -> bool:
 @transaction.atomic
 def confirmar_pedido(pedido: Pedido, via_pago=None, actor=None) -> None:
     """Auto-confirmación tras pago MP/tarjeta aprobado."""
+    _bloquear_pedido(pedido)
+
     if pedido.estado == Pedido.Estado.CONFIRMADO:
         return
+
+    # La transferencia solo la confirma el staff, aunque el estado esté mal.
+    if pedido.medio_pago == Pedido.MedioPago.TRANSFERENCIA:
+        raise PedidoError(
+            'La transferencia no se confirma sola: tiene que hacerlo el staff.'
+        )
 
     estados_validos = (
         Pedido.Estado.PENDIENTE_PAGO,
@@ -243,6 +294,7 @@ def confirmar_pedido(pedido: Pedido, via_pago=None, actor=None) -> None:
 @transaction.atomic
 def confirmar_transferencia_staff(pedido: Pedido, actor, via_pago=None) -> None:
     """Staff confirma transferencia recibida."""
+    _bloquear_pedido(pedido)
     if pedido.estado != Pedido.Estado.PENDIENTE_TRANSFERENCIA:
         raise PedidoError('El pedido no está pendiente de transferencia.')
 
@@ -267,6 +319,7 @@ def confirmar_transferencia_staff(pedido: Pedido, actor, via_pago=None) -> None:
 @transaction.atomic
 def aprobar_encargue(pedido: Pedido, actor) -> None:
     """Staff confirma que se puede encargar → habilita el cobro."""
+    _bloquear_pedido(pedido)
     if pedido.estado != Pedido.Estado.PENDIENTE_ENCARGUE:
         raise PedidoError('El pedido no está pendiente de confirmación de encargue.')
 
@@ -290,6 +343,7 @@ def aprobar_encargue(pedido: Pedido, actor) -> None:
 @transaction.atomic
 def cancelar_pedido(pedido: Pedido, actor=None, motivo: str = '') -> None:
     """Cancela y libera reservas de stock."""
+    _bloquear_pedido(pedido)
     if pedido.estado == Pedido.Estado.CANCELADO:
         return
     if pedido.estado == Pedido.Estado.ENTREGADO:
@@ -312,6 +366,7 @@ def cancelar_pedido(pedido: Pedido, actor=None, motivo: str = '') -> None:
 @transaction.atomic
 def avanzar_fulfillment(pedido: Pedido, nuevo_estado: str, actor=None) -> None:
     """Avanza estados de preparación/entrega (solo staff)."""
+    _bloquear_pedido(pedido)
     transiciones = {
         Pedido.Estado.CONFIRMADO: {
             Pedido.Estado.EN_PREPARACION,

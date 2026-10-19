@@ -5,6 +5,7 @@ from __future__ import annotations
 from django.db import transaction
 from django.db.models import QuerySet
 from django.http import HttpRequest
+from django.utils import timezone
 
 from catalogo.models import Producto
 
@@ -55,6 +56,18 @@ def _stock_disponible(producto: Producto) -> int:
     return cantidad_disponible(producto.pk)
 
 
+def bloquear_carrito(carrito: Carrito) -> Carrito:
+    """Relee el carrito con un lock que también funciona en SQLite.
+
+    SELECT FOR UPDATE no bloquea en SQLite (Django lo omite). Sin este
+    UPDATE, dos requests leen modo=None a la vez y mezclan inmediato con
+    encargue, o hacen checkout dos veces del mismo carrito.
+    El otro request espera a que esta transacción termine y después relee.
+    """
+    Carrito.objects.filter(pk=carrito.pk).update(updated_at=timezone.now())
+    return Carrito.objects.select_for_update().get(pk=carrito.pk)
+
+
 def agregar_producto(carrito: Carrito, producto: Producto, cantidad: int = 1) -> LineaCarrito:
     """Agrega (o suma) un producto. Respeta modo único y stock inmediato."""
     if cantidad < 1:
@@ -64,7 +77,7 @@ def agregar_producto(carrito: Carrito, producto: Producto, cantidad: int = 1) ->
         raise CarritoError('Ese producto no está disponible en la tienda.')
 
     with transaction.atomic():
-        carrito = Carrito.objects.select_for_update().get(pk=carrito.pk)
+        carrito = bloquear_carrito(carrito)
 
         # Releer modo bajo lock: evita mezclar inmediato/encargue en una carrera.
         if carrito.modo is None:
@@ -100,17 +113,25 @@ def agregar_producto(carrito: Carrito, producto: Producto, cantidad: int = 1) ->
             )
 
         linea.cantidad = nueva_cantidad
-        linea.precio_unitario = producto.precio
-        linea.save(update_fields=['cantidad', 'precio_unitario'])
+        # Snapshot: sumar unidades no reescribe el precio que ya estaba.
+        linea.save(update_fields=['cantidad'])
         carrito.save(update_fields=['updated_at'])
         return linea
 
 
+@transaction.atomic
 def actualizar_cantidad(linea: LineaCarrito, cantidad: int) -> None:
     if cantidad < 1:
         raise CarritoError('La cantidad debe ser al menos 1. Para quitar, usá Eliminar.')
 
-    carrito = linea.carrito
+    # Mismo lock que el checkout: si no, uno cambia la cantidad mientras
+    # el otro está creando el pedido con la foto vieja.
+    carrito = bloquear_carrito(linea.carrito)
+    try:
+        linea.refresh_from_db()
+    except LineaCarrito.DoesNotExist as exc:
+        raise CarritoError('Esa línea ya no está en el carrito.') from exc
+
     producto = linea.producto
 
     if carrito.modo == Carrito.Modo.INMEDIATO:
@@ -125,8 +146,9 @@ def actualizar_cantidad(linea: LineaCarrito, cantidad: int) -> None:
     carrito.save(update_fields=['updated_at'])
 
 
+@transaction.atomic
 def quitar_linea(linea: LineaCarrito) -> None:
-    carrito = linea.carrito
+    carrito = bloquear_carrito(linea.carrito)
     linea.delete()
     # Si quedó vacío, liberamos el modo para poder empezar de nuevo.
     if not carrito.lineas.exists():  # pyright: ignore[reportAttributeAccessIssue]
