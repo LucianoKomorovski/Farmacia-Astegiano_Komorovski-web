@@ -7,8 +7,10 @@ from decimal import Decimal
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
+from django.contrib.auth.models import Permission, User
 from django.db import connection
 from django.test import TestCase, TransactionTestCase
+from django.urls import reverse
 from django.utils import timezone
 
 from catalogo.models import Categoria, Producto
@@ -268,3 +270,101 @@ class ConsolidarConcurrenteTests(TransactionTestCase):
             ReservaStock.objects.filter(estado=ReservaStock.Estado.ACTIVA).count(),
             1,
         )
+
+
+class ReservaStockAdminTests(TestCase):
+    def test_post_no_cambia_expires_at(self):
+        """Un POST del staff no puede estirar el TTL de la reserva.
+
+        expires_at es el TTL real de 1 h que usan consolidar_reservas_pedido
+        y expirar_reservas_vencidas. Si el admin dejara editarlo, un webhook
+        approved tardío de Mercado Pago confirmaría el pedido en vez de
+        quedar registrado como _webhook_tarde.
+        """
+        # El grupo Empleadas solo consulta reservas. Este permiso de cambio
+        # es el del dueño en el panel: sin él el POST ni llega al formulario
+        # y el test no probaría que el campo es de solo lectura.
+        staff = User.objects.create_user(
+            'staff-reserva', 'staff-reserva@test.com', 'x12345678', is_staff=True,
+        )
+        staff.user_permissions.add(
+            Permission.objects.get(
+                content_type__app_label='inventario',
+                codename='change_reservastock',
+            ),
+        )
+        self.client.force_login(staff)
+
+        cat = Categoria.objects.create(nombre='Admin', slug='admin-reserva')
+        producto = Producto.objects.create(
+            categoria=cat,
+            nombre='Jabón',
+            slug='jabon-admin',
+            sku='JAB-ADMIN',
+            descripcion='',
+            tipo=Producto.Tipo.INMEDIATO,
+            precio=Decimal('100'),
+            activo=True,
+        )
+        pedido = Pedido.objects.create(
+            numero='FA-2026-009901',
+            nombre_cliente='Ana',
+            email='ana@test.com',
+            telefono='1',
+            estado=Pedido.Estado.PENDIENTE_PAGO,
+            modo=Pedido.Modo.INMEDIATO,
+            modalidad_entrega=Pedido.ModalidadEntrega.A_COORDINAR,
+            medio_pago=Pedido.MedioPago.MERCADOPAGO,
+            subtotal=Decimal('300'),
+            total=Decimal('300'),
+        )
+        vence = timezone.now() + timedelta(hours=1)
+        reserva = ReservaStock.objects.create(
+            producto=producto,
+            pedido=pedido,
+            cantidad=3,
+            estado=ReservaStock.Estado.ACTIVA,
+            expires_at=vence,
+        )
+        url = reverse('admin:inventario_reservastock_change', args=[reserva.pk])
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+
+        data = self._datos_change(resp)
+        # El staff manda otra fecha de vencimiento.
+        data['expires_at_0'] = '2099-12-31'
+        data['expires_at_1'] = '23:59:59'
+        # La cantidad sí se puede editar: así sabemos que el POST se guardó.
+        data['cantidad'] = '9'
+        data['_save'] = 'Guardar'
+
+        resp = self.client.post(url, data)
+        self.assertRedirects(
+            resp,
+            reverse('admin:inventario_reservastock_changelist'),
+            fetch_redirect_response=False,
+        )
+
+        reserva.refresh_from_db()
+        self.assertEqual(reserva.expires_at, vence)
+        self.assertEqual(reserva.cantidad, 9)
+
+    def _datos_change(self, response) -> dict[str, str]:
+        """Copia el formulario de cambio (y los inlines) para reenviarlo."""
+        data: dict[str, str] = {}
+        form = response.context['adminform'].form
+        for name in form.fields:
+            valor = form[name].value()
+            data[name] = '' if valor is None else str(valor)
+
+        for inline_formset in response.context['inline_admin_formsets']:
+            formset = inline_formset.formset
+            prefijo = formset.prefix
+            for clave, valor in formset.management_form.initial.items():
+                data[f'{prefijo}-{clave}'] = '' if valor is None else str(valor)
+            for form_inline in formset.forms:
+                for name in form_inline.fields:
+                    valor = form_inline[name].value()
+                    clave = form_inline.add_prefix(name)
+                    data[clave] = '' if valor is None else str(valor)
+        return data

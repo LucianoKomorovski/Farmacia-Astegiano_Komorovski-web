@@ -25,7 +25,11 @@ class ReservaStockAdmin(admin.ModelAdmin):
     list_display = ('pedido', 'producto', 'cantidad', 'estado', 'expires_at', 'created_at')
     list_filter = ('estado',)
     search_fields = ('pedido__numero', 'producto__nombre')
-    readonly_fields = ('created_at',)
+    # expires_at es el TTL real de 1 h que usan consolidar_reservas_pedido y
+    # expirar_reservas_vencidas. Si el staff lo estira, un webhook approved
+    # tardío de Mercado Pago confirmaría el pedido en vez de quedar como
+    # _webhook_tarde.
+    readonly_fields = ('created_at', 'expires_at')
 
 
 @admin.register(ImportacionStock)
