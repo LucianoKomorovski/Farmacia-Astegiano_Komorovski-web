@@ -331,12 +331,15 @@ class ReservaStockAdminTests(TestCase):
         self.assertEqual(resp.status_code, 200)
 
         data = self._datos_change(resp)
-        # El staff manda otra fecha de vencimiento.
+        # El staff manda otra fecha de vencimiento. Ya no queda ningún campo
+        # editable en el formulario (cantidad, estado, pedido y producto
+        # también son de solo lectura), así que el control no puede ser
+        # "este otro campo sí cambió": el POST tiene que responder OK y
+        # dejar la reserva igual.
         data['expires_at_0'] = '2099-12-31'
         data['expires_at_1'] = '23:59:59'
-        # La cantidad sí se puede editar: así sabemos que el POST se guardó.
-        data['cantidad'] = '9'
         data['_save'] = 'Guardar'
+        antes = self._foto_reserva(reserva)
 
         resp = self.client.post(url, data)
         self.assertRedirects(
@@ -346,8 +349,119 @@ class ReservaStockAdminTests(TestCase):
         )
 
         reserva.refresh_from_db()
+        self.assertEqual(self._foto_reserva(reserva), antes)
         self.assertEqual(reserva.expires_at, vence)
-        self.assertEqual(reserva.cantidad, 9)
+
+    def test_post_no_cambia_cantidad_estado_pedido_producto(self):
+        """Un POST del staff no desfasa la reserva de las líneas del pedido.
+
+        StockWeb es espejo: disponible = cantidad − reservas activas
+        vigentes, y la consolidación descuenta reserva.cantidad. Si el admin
+        dejara editar cantidad, estado, pedido o producto, el espejo
+        descontaría de más, de menos, o contra otro producto.
+        """
+        staff = User.objects.create_user(
+            'staff-reserva-campos', 'staff-reserva-campos@test.com', 'x12345678',
+            is_staff=True,
+        )
+        staff.user_permissions.add(
+            Permission.objects.get(
+                content_type__app_label='inventario',
+                codename='change_reservastock',
+            ),
+        )
+        self.client.force_login(staff)
+
+        cat = Categoria.objects.create(nombre='Admin campos', slug='admin-reserva-campos')
+        producto = Producto.objects.create(
+            categoria=cat,
+            nombre='Jabón',
+            slug='jabon-admin-campos',
+            sku='JAB-ADMIN-CAMPOS',
+            descripcion='',
+            tipo=Producto.Tipo.INMEDIATO,
+            precio=Decimal('100'),
+            activo=True,
+        )
+        otro_producto = Producto.objects.create(
+            categoria=cat,
+            nombre='Crema',
+            slug='crema-admin-campos',
+            sku='CRE-ADMIN-CAMPOS',
+            descripcion='',
+            tipo=Producto.Tipo.INMEDIATO,
+            precio=Decimal('200'),
+            activo=True,
+        )
+        pedido = Pedido.objects.create(
+            numero='FA-2026-009902',
+            nombre_cliente='Ana',
+            email='ana-campos@test.com',
+            telefono='1',
+            estado=Pedido.Estado.PENDIENTE_PAGO,
+            modo=Pedido.Modo.INMEDIATO,
+            modalidad_entrega=Pedido.ModalidadEntrega.A_COORDINAR,
+            medio_pago=Pedido.MedioPago.MERCADOPAGO,
+            subtotal=Decimal('300'),
+            total=Decimal('300'),
+        )
+        otro_pedido = Pedido.objects.create(
+            numero='FA-2026-009903',
+            nombre_cliente='Luis',
+            email='luis-campos@test.com',
+            telefono='2',
+            estado=Pedido.Estado.PENDIENTE_PAGO,
+            modo=Pedido.Modo.INMEDIATO,
+            modalidad_entrega=Pedido.ModalidadEntrega.A_COORDINAR,
+            medio_pago=Pedido.MedioPago.MERCADOPAGO,
+            subtotal=Decimal('200'),
+            total=Decimal('200'),
+        )
+        reserva = ReservaStock.objects.create(
+            producto=producto,
+            pedido=pedido,
+            cantidad=3,
+            estado=ReservaStock.Estado.ACTIVA,
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
+        url = reverse('admin:inventario_reservastock_change', args=[reserva.pk])
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+
+        data = self._datos_change(resp)
+        # Valores válidos y distintos: si el campo siguiera en el formulario,
+        # el admin los guardaría. Al ser solo lectura, el POST los ignora.
+        data['cantidad'] = '9'
+        data['estado'] = ReservaStock.Estado.LIBERADA
+        data['pedido'] = str(otro_pedido.pk)
+        data['producto'] = str(otro_producto.pk)
+        data['_save'] = 'Guardar'
+        antes = self._foto_reserva(reserva)
+
+        resp = self.client.post(url, data)
+        self.assertRedirects(
+            resp,
+            reverse('admin:inventario_reservastock_changelist'),
+            fetch_redirect_response=False,
+        )
+
+        reserva.refresh_from_db()
+        self.assertEqual(reserva.cantidad, 3)
+        self.assertEqual(reserva.estado, ReservaStock.Estado.ACTIVA)
+        self.assertEqual(reserva.pedido_id, pedido.pk)
+        self.assertEqual(reserva.producto_id, producto.pk)
+        self.assertEqual(self._foto_reserva(reserva), antes)
+
+    def _foto_reserva(self, reserva: ReservaStock) -> dict[str, object]:
+        """Valores que el admin no debe poder cambiar."""
+        return {
+            'cantidad': reserva.cantidad,
+            'estado': reserva.estado,
+            'pedido_id': reserva.pedido_id,
+            'producto_id': reserva.producto_id,
+            'expires_at': reserva.expires_at,
+            'created_at': reserva.created_at,
+        }
 
     def _datos_change(self, response) -> dict[str, str]:
         """Copia el formulario de cambio (y los inlines) para reenviarlo."""

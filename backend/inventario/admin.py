@@ -29,7 +29,22 @@ class ReservaStockAdmin(admin.ModelAdmin):
     # expirar_reservas_vencidas. Si el staff lo estira, un webhook approved
     # tardío de Mercado Pago confirmaría el pedido en vez de quedar como
     # _webhook_tarde.
-    readonly_fields = ('created_at', 'expires_at')
+    #
+    # cantidad, estado, pedido y producto tampoco se tocan a mano. StockWeb
+    # es espejo: disponible = cantidad − reservas activas vigentes, y la
+    # consolidación descuenta exactamente reserva.cantidad del producto de
+    # esa reserva. Si el staff cambia uno de esos campos, la reserva queda
+    # desfasada de las líneas del pedido y el espejo descuenta mal
+    # (sobreventa o cupo perdido). Las transiciones siguen en los services
+    # de inventario (reservar, consolidar, liberar, expirar).
+    readonly_fields = (
+        'created_at',
+        'expires_at',
+        'cantidad',
+        'estado',
+        'pedido',
+        'producto',
+    )
 
 
 @admin.register(ImportacionStock)
