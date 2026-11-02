@@ -452,6 +452,132 @@ class ReservaStockAdminTests(TestCase):
         self.assertEqual(reserva.producto_id, producto.pk)
         self.assertEqual(self._foto_reserva(reserva), antes)
 
+    def test_superuser_no_agrega_ni_borra_reservas(self):
+        """El dueño no puede borrar ni crear una reserva desde el admin.
+
+        Las empleadas solo consultan. El dueño es superuser y, sin este
+        corte, el borrado individual y la acción "eliminar seleccionados"
+        sí funcionan: la fila desaparece, el disponible sube y el pedido
+        sigue pendiente de pago. Con dos productos, consolidar descuenta
+        solo la reserva que quedó (sobreventa del producto borrado).
+        """
+        # El grupo Empleadas no tiene delete_reservastock. Este usuario es
+        # el dueño: is_superuser saltea la tabla de permisos.
+        duenio = User.objects.create_superuser(
+            'duenio-reserva', 'duenio-reserva@test.com', 'x12345678',
+        )
+        self.client.force_login(duenio)
+
+        cat = Categoria.objects.create(nombre='Admin borrado', slug='admin-reserva-borrado')
+        producto_a = Producto.objects.create(
+            categoria=cat,
+            nombre='Jabón',
+            slug='jabon-admin-borrado',
+            sku='JAB-ADMIN-BORRADO',
+            descripcion='',
+            tipo=Producto.Tipo.INMEDIATO,
+            precio=Decimal('100'),
+            activo=True,
+        )
+        producto_b = Producto.objects.create(
+            categoria=cat,
+            nombre='Crema',
+            slug='crema-admin-borrado',
+            sku='CRE-ADMIN-BORRADO',
+            descripcion='',
+            tipo=Producto.Tipo.INMEDIATO,
+            precio=Decimal('200'),
+            activo=True,
+        )
+        pedido = Pedido.objects.create(
+            numero='FA-2026-009904',
+            nombre_cliente='Ana',
+            email='ana-borrado@test.com',
+            telefono='1',
+            estado=Pedido.Estado.PENDIENTE_PAGO,
+            modo=Pedido.Modo.INMEDIATO,
+            modalidad_entrega=Pedido.ModalidadEntrega.A_COORDINAR,
+            medio_pago=Pedido.MedioPago.MERCADOPAGO,
+            subtotal=Decimal('400'),
+            total=Decimal('400'),
+        )
+        stock_a = StockWeb.objects.create(producto=producto_a, cantidad=5)
+        stock_b = StockWeb.objects.create(producto=producto_b, cantidad=5)
+        vence = timezone.now() + timedelta(hours=1)
+        reserva_a = ReservaStock.objects.create(
+            producto=producto_a,
+            pedido=pedido,
+            cantidad=2,
+            estado=ReservaStock.Estado.ACTIVA,
+            expires_at=vence,
+        )
+        reserva_b = ReservaStock.objects.create(
+            producto=producto_b,
+            pedido=pedido,
+            cantidad=1,
+            estado=ReservaStock.Estado.ACTIVA,
+            expires_at=vence,
+        )
+        # Antes del intento, el espejo ya descuenta las dos reservas activas.
+        self.assertEqual(stock_a.cantidad_disponible, 3)
+        self.assertEqual(stock_b.cantidad_disponible, 4)
+
+        alta = self.client.get(reverse('admin:inventario_reservastock_add'))
+        self.assertEqual(alta.status_code, 403)
+        alta_post = self.client.post(
+            reverse('admin:inventario_reservastock_add'),
+            {
+                'cantidad': '9',
+                'estado': ReservaStock.Estado.ACTIVA,
+                'pedido': str(pedido.pk),
+                'producto': str(producto_a.pk),
+            },
+        )
+        self.assertEqual(alta_post.status_code, 403)
+
+        lista = self.client.get(reverse('admin:inventario_reservastock_changelist'))
+        self.assertEqual(lista.status_code, 200)
+        accion = lista.context['action_form']
+        nombres: list[str] = []
+        if accion is not None:
+            nombres = [opcion[0] for opcion in accion.fields['action'].choices]
+        self.assertNotIn('delete_selected', nombres)
+
+        # Aunque el POST mande la acción masiva, no hay permiso: no borra.
+        self.client.post(
+            reverse('admin:inventario_reservastock_changelist'),
+            {
+                'action': 'delete_selected',
+                '_selected_action': [str(reserva_a.pk), str(reserva_b.pk)],
+                'post': 'yes',
+            },
+        )
+        borrado = self.client.post(
+            reverse('admin:inventario_reservastock_delete', args=[reserva_a.pk]),
+            {'post': 'yes'},
+        )
+        self.assertEqual(borrado.status_code, 403)
+
+        self.assertEqual(ReservaStock.objects.filter(pk=reserva_a.pk).count(), 1)
+        self.assertEqual(ReservaStock.objects.filter(pk=reserva_b.pk).count(), 1)
+        stock_a.refresh_from_db()
+        stock_b.refresh_from_db()
+        self.assertEqual(stock_a.cantidad_disponible, 3)
+        self.assertEqual(stock_b.cantidad_disponible, 4)
+
+        # El pago OK descuenta las dos líneas, no solo la que hubiera quedado.
+        consolidar_reservas_pedido(pedido)
+        stock_a.refresh_from_db()
+        stock_b.refresh_from_db()
+        self.assertEqual(stock_a.cantidad, 3)
+        self.assertEqual(stock_b.cantidad, 4)
+        self.assertEqual(
+            ReservaStock.objects.filter(
+                pedido=pedido, estado=ReservaStock.Estado.CONSOLIDADA,
+            ).count(),
+            2,
+        )
+
     def _foto_reserva(self, reserva: ReservaStock) -> dict[str, object]:
         """Valores que el admin no debe poder cambiar."""
         return {

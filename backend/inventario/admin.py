@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.http import HttpRequest
 
 from .models import ImportacionStock, ReservaStock, StockWeb
 
@@ -45,6 +46,23 @@ class ReservaStockAdmin(admin.ModelAdmin):
         'pedido',
         'producto',
     )
+
+    # El alta y el borrado tampoco. Una reserva nace en
+    # reservar_stock_para_pedido y se suelta con liberar / expirar (o se
+    # consolida al cobrar). Borrar la fila a mano no pasa por ahí: el
+    # disponible (cantidad − reservas activas vigentes) sube y el pedido
+    # sigue pendiente de pago. Si queda otra reserva de ese pedido,
+    # consolidar_reservas_pedido confirma y descuenta solo las que siguen;
+    # el producto borrado no baja de StockWeb (sobreventa).
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    def has_delete_permission(
+        self,
+        request: HttpRequest,
+        obj: ReservaStock | None = None,
+    ) -> bool:
+        return False
 
 
 @admin.register(ImportacionStock)
