@@ -47,13 +47,22 @@ class ReservaStockAdmin(admin.ModelAdmin):
         'producto',
     )
 
-    # El alta y el borrado tampoco. Una reserva nace en
+    # El alta y el borrado a mano tampoco. Una reserva nace en
     # reservar_stock_para_pedido y se suelta con liberar / expirar (o se
     # consolida al cobrar). Borrar la fila a mano no pasa por ahí: el
     # disponible (cantidad − reservas activas vigentes) sube y el pedido
     # sigue pendiente de pago. Si queda otra reserva de ese pedido,
     # consolidar_reservas_pedido confirma y descuenta solo las que siguen;
     # el producto borrado no baja de StockWeb (sobreventa).
+    #
+    # Django reutiliza has_delete_permission en get_deleted_objects: al
+    # borrar un padre recorre cada reserva (CASCADE) y, si esto devuelve
+    # False, mete "reserva de stock" en perms_needed. El POST del
+    # superuser —que sí puede borrar pedidos de prueba— termina en
+    # PermissionDenied. Cancelar o cobrar no borra la fila, solo cambia
+    # estado, así que el bloqueo pega a casi todo pedido inmediato.
+    # Borrar el pedido entero no es ese hueco: la reserva se va con él
+    # y ya no hay un pendiente que consolidar.
     def has_add_permission(self, request: HttpRequest) -> bool:
         return False
 
@@ -62,6 +71,14 @@ class ReservaStockAdmin(admin.ModelAdmin):
         request: HttpRequest,
         obj: ReservaStock | None = None,
     ) -> bool:
+        # Pantallas de esta reserva: prohibido. Si la vista es el admin
+        # de otro modelo (el delete o la acción masiva del pedido),
+        # vale el permiso normal del usuario.
+        vista = getattr(getattr(request, 'resolver_match', None), 'func', None)
+        admin_vista = getattr(vista, 'model_admin', None)
+        modelo_vista = getattr(admin_vista, 'model', None)
+        if modelo_vista is not None and modelo_vista is not self.model:
+            return super().has_delete_permission(request, obj)
         return False
 
 

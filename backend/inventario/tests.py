@@ -578,6 +578,102 @@ class ReservaStockAdminTests(TestCase):
             2,
         )
 
+    def test_superuser_borra_pedido_con_reservas(self):
+        """Borrar el pedido (superuser) también se lleva las reservas.
+
+        El corte de arriba es el borrado suelto de la fila: el pedido
+        seguiría pendiente y el disponible sube (sobreventa). Borrar el
+        pedido es otra cosa. get_deleted_objects pregunta
+        has_delete_permission por cada reserva; si siempre es False, la
+        pantalla igual ofrece borrar y el POST tira PermissionDenied.
+        Pasa con la reserva activa y también liberada: cancelar o cobrar
+        no borra la fila, solo cambia el estado.
+        """
+        duenio = User.objects.create_superuser(
+            'duenio-pedido-reserva', 'duenio-pedido-reserva@test.com', 'x12345678',
+        )
+        self.client.force_login(duenio)
+
+        cat = Categoria.objects.create(nombre='Admin pedido', slug='admin-pedido-reserva')
+        producto = Producto.objects.create(
+            categoria=cat,
+            nombre='Jabón',
+            slug='jabon-admin-pedido',
+            sku='JAB-ADMIN-PEDIDO',
+            descripcion='',
+            tipo=Producto.Tipo.INMEDIATO,
+            precio=Decimal('100'),
+            activo=True,
+        )
+        stock = StockWeb.objects.create(producto=producto, cantidad=10)
+
+        def pedido(numero: str, email: str) -> Pedido:
+            return Pedido.objects.create(
+                numero=numero,
+                nombre_cliente='Ana',
+                email=email,
+                telefono='1',
+                estado=Pedido.Estado.PENDIENTE_PAGO,
+                modo=Pedido.Modo.INMEDIATO,
+                modalidad_entrega=Pedido.ModalidadEntrega.A_COORDINAR,
+                medio_pago=Pedido.MedioPago.MERCADOPAGO,
+                subtotal=Decimal('200'),
+                total=Decimal('200'),
+            )
+
+        pedido_activo = pedido('FA-2026-009910', 'activa@test.com')
+        reserva_activa = ReservaStock.objects.create(
+            producto=producto,
+            pedido=pedido_activo,
+            cantidad=2,
+            estado=ReservaStock.Estado.ACTIVA,
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
+        pedido_liberado = pedido('FA-2026-009911', 'liberada@test.com')
+        reserva_liberada = ReservaStock.objects.create(
+            producto=producto,
+            pedido=pedido_liberado,
+            cantidad=4,
+            estado=ReservaStock.Estado.LIBERADA,
+            expires_at=timezone.now() - timedelta(hours=1),
+        )
+        # Solo la activa descuenta. La liberada ya no ocupa cupo.
+        self.assertEqual(stock.cantidad_disponible, 8)
+
+        url_activa = reverse('admin:pedidos_pedido_delete', args=[pedido_activo.pk])
+        confirmacion = self.client.get(url_activa)
+        self.assertEqual(confirmacion.status_code, 200)
+        self.assertFalse(confirmacion.context['perms_lacking'])
+
+        borrado = self.client.post(url_activa, {'post': 'yes'})
+        self.assertRedirects(
+            borrado,
+            reverse('admin:pedidos_pedido_changelist'),
+            fetch_redirect_response=False,
+        )
+        self.assertFalse(Pedido.objects.filter(pk=pedido_activo.pk).exists())
+        self.assertFalse(ReservaStock.objects.filter(pk=reserva_activa.pk).exists())
+        stock.refresh_from_db()
+        # El pedido se fue: no se consolidó (cantidad intacta) y el cupo vuelve.
+        self.assertEqual(stock.cantidad, 10)
+        self.assertEqual(stock.cantidad_disponible, 10)
+
+        # La acción masiva del changelist usa el mismo chequeo.
+        lista = reverse('admin:pedidos_pedido_changelist')
+        self.client.post(
+            lista,
+            {
+                'action': 'delete_selected',
+                '_selected_action': [str(pedido_liberado.pk)],
+                'post': 'yes',
+            },
+        )
+        self.assertFalse(Pedido.objects.filter(pk=pedido_liberado.pk).exists())
+        self.assertFalse(ReservaStock.objects.filter(pk=reserva_liberada.pk).exists())
+        stock.refresh_from_db()
+        self.assertEqual(stock.cantidad, 10)
+        self.assertEqual(stock.cantidad_disponible, 10)
+
     def _foto_reserva(self, reserva: ReservaStock) -> dict[str, object]:
         """Valores que el admin no debe poder cambiar."""
         return {
